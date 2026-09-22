@@ -1,0 +1,91 @@
+# Dependencies
+/node_modules/
+/cli/node_modules/
+/cli/.runtime/
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# Generated builds and caches
+/.next/
+/.next-cli-build/
+/out/
+/build/
+/dist/
+/coverage/
+/cli/app/
+/cli/.build-home/
+/.next-analyze/
+*.tsbuildinfo
+next-env.d.ts
+
+# Local environments and secrets
+.env*
+!.env.example
+/.venv/
+*.pem
+.engine-token.txt
+.oauth-session.json
+.tmp-*.json
+
+# Runtime data and logs
+/data/
+/logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Editors and local agent state
+/.idea/
+/.vscode/
+/.cursor/
+/.kiro/
+/.claude/
+/.agents/
+/.codex/
+
+# Local working copies and generated analysis
+/.docs/
+/.repo/
+/.script/
+/.codegraph/
+/.PR/
+/open-sse.old/
+/graphify-out/
+/.graphifyignore
+/9router-*
+
+# Internal planning notes; product documentation remains tracked
+/docs/superpowers/
+
+# Local helper files
+/.bin/
+/product/
+/source/
+/cursor/
+/PR/
+/test/
+/open-sse/test/
+/scripts/agSniffer/
+/README1.md
+/RM.md
+/RM.vn.md
+/PUBLIC.md
+/PUBLIC.en.md
+/Thanks.md
+/deploy*.sh
+/ecosystem.config.*
+/.dev-server.log
+/.dev-server-err.log
+/.start-dev.ps1
+/start-dev-silent.cjs
+/debug.log
+
+# OS files
+.DS_Store

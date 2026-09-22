@@ -1,0 +1,111 @@
+import { getAdapter } from "../driver.js";
+import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
+
+const DEFAULT_MITM_ROUTER_BASE = "http://localhost:20228";
+const DEFAULT_SETTINGS = {
+  cloudEnabled: false,
+  stickyRoundRobinLimit: 3,
+  providerStrategies: {},
+  quotaVisibility: {},
+  comboStrategy: "fallback",
+  comboStickyRoundRobinLimit: 1,
+  comboStrategies: {},
+  capacityAdapter: {
+    vision: { enabled: true, roundRobin: false, models: [] },
+    pdf: { enabled: false, roundRobin: false, models: [] },
+    audioInput: { enabled: true, roundRobin: false, models: [] },
+    videoInput: { enabled: false, roundRobin: false, models: [] },
+  },
+  requireLogin: true,
+  requireApiKey: true,
+  authMode: "password",
+  ssoType: "oidc",
+  oidcIssuerUrl: "",
+  oidcClientId: "",
+  oidcClientSecret: "",
+  oidcScopes: "openid profile email",
+  oidcLoginLabel: "Sign in with OIDC",
+  samlEntryPoint: "",
+  samlIssuer: "urn:apirouter:sp",
+  samlCert: "",
+  samlLoginLabel: "Sign in with SAML SSO",
+  samlAttributeEmail: "email",
+  samlAttributeName: "name",
+  enableObservability: false,
+  observabilityMaxRecords: 1000,
+  observabilityBatchSize: 20,
+  observabilityFlushIntervalMs: 5000,
+  observabilityMaxJsonSize: 5,
+  mitmRouterBaseUrl: DEFAULT_MITM_ROUTER_BASE,
+  dnsToolEnabled: {},
+  rtkEnabled: true,
+  cavemanEnabled: false,
+  cavemanLevel: "full",
+  ponytailEnabled: false,
+  ponytailLevel: "full",
+  pxpipeEnabled: false,
+  pxpipeAutoInstall: true,
+  pxpipeMinChars: 25000,
+  pxpipeTimeoutMs: 15000,
+};
+
+async function readRaw() {
+  const db = await getAdapter();
+  const row = db.get(`SELECT data FROM settings WHERE id = 1`);
+  return row ? parseJson(row.data, {}) : {};
+}
+
+// Merge raw settings with defaults; backward-compat for missing keys
+export function mergeWithDefaults(raw) {
+  const merged = { ...DEFAULT_SETTINGS, ...(raw || {}) };
+  for (const [key, defVal] of Object.entries(DEFAULT_SETTINGS)) {
+    if (merged[key] === undefined) merged[key] = defVal;
+  }
+  for (const key of [
+    "tunnelEnabled", "tunnelUrl", "tunnelProvider", "tailscaleEnabled", "tailscaleUrl",
+    "tunnelDashboardAccess", "outboundProxyEnabled", "outboundProxyUrl", "outboundNoProxy",
+    "headroomEnabled", "headroomUrl", "headroomCompressUserMessages", "headroomTimeoutMs",
+    "headroomCodeAware", "headroomKompress",
+  ]) delete merged[key];
+  return merged;
+}
+
+export async function getSettings() {
+  const raw = await readRaw();
+  return mergeWithDefaults(raw);
+}
+
+// Atomic read-merge-write inside transaction (prevents losing concurrent updates)
+export async function updateSettings(updates) {
+  const db = await getAdapter();
+  let next;
+  db.transaction(function () {
+    const row = db.get(`SELECT data FROM settings WHERE id = 1`);
+    const current = row ? parseJson(row.data, {}) : {};
+    next = { ...current, ...updates };
+    db.run(
+      `INSERT INTO settings(id, data) VALUES(1, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data`,
+      [stringifyJson(next)],
+    );
+  });
+  return mergeWithDefaults(next);
+}
+
+export async function isCloudEnabled() {
+  const settings = await getSettings();
+  return settings.cloudEnabled === true;
+}
+
+export async function getCloudUrl() {
+  const settings = await getSettings();
+  return (
+    settings.cloudUrl ||
+    process.env.CLOUD_URL ||
+    process.env.NEXT_PUBLIC_CLOUD_URL ||
+    ""
+  );
+}
+
+export async function exportSettings() {
+  return await readRaw();
+}
