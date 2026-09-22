@@ -1,113 +1,128 @@
-# Telegram bot cục bộ
+# Local Telegram Bot
 
-Bot Telegram cung cấp giao diện quản lý đơn giản cho APIRouter:
+The Telegram bot provides a lightweight management interface for APIRouter:
 
-- Providers và trạng thái tài khoản
-- Combos và danh sách model
-- Usage theo `today`, `24h`, `7d`, `30d`, `60d`, hoặc `all`
-- Quota tracker theo từng tài khoản
-- Thêm, ngắt/kết nối lại và xóa provider API key/cookie
-- Thêm, đổi tên, sửa model, xóa và chọn strategy cho combo
+- View providers and account status
+- View combos and their model lists
+- Review usage for `today`, `24h`, `7d`, `30d`, `60d`, or `all`
+- Track quota for individual accounts
+- Add, disconnect, reconnect, and delete provider API key or cookie connections
+- Add, rename, edit, delete, and select a strategy for combos
 
-Bot dùng long polling, chạy trên cùng máy với APIRouter và không cần webhook hay package bổ sung.
+The bot uses long polling, runs on the same machine as APIRouter, and requires no webhook or additional package.
 
-## 1. Tạo bot
+## 1. Create a Bot
 
-Tạo bot bằng `@BotFather`, sau đó lấy token. Thêm vào `.env.local`:
+Create a bot with `@BotFather`, copy its token, and add it to `.env.local`:
 
 ```env
 TELEGRAM_BOT_TOKEN=123456789:replace-with-bot-token
 APIRouter_BASE_URL=http://127.0.0.1:20228
 ```
 
-Bot sử dụng chính mật khẩu đăng nhập Web UI APIRouter. Không cần cấu hình mật khẩu Telegram riêng.
+The bot uses the existing APIRouter Web UI password. You do not need to configure a separate Telegram password.
 
-## 2. Đăng nhập lần đầu
+## 2. Enable the Bot
 
-Khởi động APIRouter:
+Start APIRouter:
 
 ```bash
 ./apirouter --no-browser
 ```
 
-Trong màn hình `Choose Interface`, chọn `Telegram Bot: OFF → toggle` để chuyển sang `ON`. Bot được APIRouter tự khởi động và dừng; không cần chạy lệnh chatbot riêng. Chọn lại mục này để tắt bot.
+On the `Choose Interface` screen, select `Telegram Bot: OFF → toggle` to switch it to `ON`. APIRouter starts and stops the bot automatically, so no separate chatbot command is required. Select the same option again to turn the bot off.
 
-Lệnh `npm run bot:telegram` vẫn được giữ lại cho mục đích phát triển hoặc chẩn đoán độc lập.
+The `npm run bot:telegram` command remains available for standalone development and diagnostics.
 
-Gửi `/start` hoặc `/login` trong chat riêng với bot. Bot yêu cầu mật khẩu Web UI hiện tại và xác minh qua APIRouter. Sau khi thành công, phiên được lưu tại:
+## 3. Sign In
+
+Send `/start` or `/login` in a private chat with the bot. The bot asks for the current Web UI password and verifies it through APIRouter. After a successful login, the session is stored at:
 
 ```text
 DATA_DIR/telegram-bot/sessions.json
 ```
 
-File chỉ chứa chat ID, thông tin nhận diện Telegram, phiên bản xác thực không đảo ngược và thời điểm đăng nhập/gần nhất; không chứa mật khẩu hay nội dung chat. Phiên còn hiệu lực sau khi bot khởi động lại. Dùng `/logout` để xóa phiên và yêu cầu mật khẩu ở lần sau.
+The file contains only the chat ID, Telegram identity metadata, a non-reversible authentication version, and login/activity timestamps. It does not contain passwords or chat contents. The session remains valid after the bot restarts. Use `/logout` to delete the saved session and require the password on the next login.
 
-Mặc định phiên hết hạn sau 30 ngày không hoạt động. Có thể thay đổi:
+Sessions expire after 30 inactive days by default. To change the expiration period, set:
 
 ```env
 TELEGRAM_SESSION_TTL_DAYS=30
 ```
 
-Nếu mật khẩu Web UI, `INITIAL_PASSWORD`, hoặc chế độ đăng nhập Password/OIDC/SAML thay đổi, phiên Telegram cũ tự bị thu hồi và bot yêu cầu đăng nhập lại. Bot chỉ lưu fingerprint HMAC của cấu hình xác thực, không lưu mật khẩu hoặc password hash.
+Existing Telegram sessions are automatically revoked when the Web UI password, `INITIAL_PASSWORD`, or the Password/OIDC/SAML authentication mode changes. The bot stores only an HMAC fingerprint of the authentication configuration, never the password or password hash.
 
-Có thể thêm allowlist như một lớp giới hạn trước khi cho phép thử mật khẩu. Gửi `/id` để lấy chat ID, sau đó thêm:
+## 4. Restrict Access
+
+You can configure an allowlist as an additional restriction before password verification. Send `/id` to obtain a Telegram chat ID, then add it to `.env.local`:
 
 ```env
 TELEGRAM_ALLOWED_CHAT_IDS=123456789
 ```
 
-Có thể cho phép nhiều tài khoản bằng danh sách phân cách bởi dấu phẩy:
+To allow multiple accounts, use a comma-separated list:
 
 ```env
 TELEGRAM_ALLOWED_CHAT_IDS=123456789,987654321
 ```
 
-Nếu không cấu hình `TELEGRAM_ALLOWED_CHAT_IDS`, bất kỳ người dùng chat riêng nào biết đúng mật khẩu Web UI đều có thể đăng nhập.
+Without `TELEGRAM_ALLOWED_CHAT_IDS`, any private-chat user who knows the correct Web UI password can sign in.
 
-## Lệnh
+## Commands
 
-- `/menu` — menu nút bấm
-- `/providers` — providers
-- `/combos` — combos
-- `/usage 7d` — usage; có thể thay `7d` bằng kỳ khác
-- `/quota` — chọn tài khoản và xem quota
-- `/login` — đăng nhập lần đầu bằng mật khẩu Web UI
-- `/logout` — xóa phiên Telegram đã ghi nhớ
-- `/cancel` — hủy bước nhập mật khẩu hoặc thao tác quản lý đang chờ
-- `/id` — xem chat ID
+- `/menu` — open the button menu
+- `/providers` — view and manage providers
+- `/combos` — view and manage combos
+- `/usage 7d` — view usage; replace `7d` with another supported period
+- `/quota` — select an account and view its quota
+- `/login` — sign in with the Web UI password
+- `/logout` — delete the saved Telegram session
+- `/cancel` — cancel password entry or a pending management action
+- `/id` — show the Telegram chat ID
 
-Mật khẩu được gửi tới endpoint nội bộ `/api/auth/verify-password`, được bảo vệ bằng CLI token, để so sánh với cùng mật khẩu/hash của Web UI. Endpoint này không tạo cookie, không tạo phiên Web UI và không dùng chung bộ khóa thử sai của trang đăng nhập. Mật khẩu không được bot lưu lại. Bot cố gắng xóa tin nhắn chứa mật khẩu ngay sau khi nhận, nhưng Telegram vẫn là hệ thống bên thứ ba; chỉ nên đăng nhập trong chat riêng. Không chia sẻ `.env.local`, bot token, thư mục `DATA_DIR`, file `auth/cli-secret`, hoặc file phiên Telegram.
+## Security
 
-## Quản lý providers
+The password is sent to the internal `/api/auth/verify-password` endpoint, protected by the CLI token, and compared with the same password or hash used by the Web UI. The endpoint does not create cookies or Web UI sessions and does not share the login page's failed-attempt lockout state.
 
-Trong menu `Providers`, chọn `Thêm provider`. Danh sách provider và loại xác thực bám theo Terminal UI:
+The bot does not store the password and attempts to delete password messages immediately after receiving them. Telegram is still a third-party system, so sign in only through a private chat. Never share `.env.local`, the bot token, the `DATA_DIR` directory, `auth/cli-secret`, or the Telegram session file.
 
-- Provider OAuth callback: bot tạo link đăng nhập; sau khi xác thực, sao chép toàn bộ callback URL từ thanh địa chỉ và gửi lại cho bot.
-- Provider OAuth device-code: bot hiển thị link và mã; sau khi đăng nhập, bấm `Kiểm tra đăng nhập`.
-- Provider API key: bot hỏi tên hiển thị rồi API key.
+## Managing Providers
 
-Tin nhắn chứa API key hoặc callback URL được xóa ngay sau khi nhận. API key không được lưu trong state của bot; OAuth verifier chỉ được giữ trong bộ nhớ cho tới khi hoàn tất hoặc hủy thao tác.
+Open `Providers` and select `Add provider`. The available providers and authentication methods match the Terminal UI:
 
-Chọn `Quản lý` để mở từng kết nối. Có thể ngắt kết nối, kết nối lại hoặc xóa vĩnh viễn. Thao tác xóa luôn yêu cầu xác nhận.
+- OAuth callback: the bot creates a sign-in link. After authentication, copy the complete callback URL from the browser address bar and send it to the bot.
+- OAuth device code: the bot displays a link and code. Complete authentication, then select `Check login`.
+- API key: the bot asks for a display name and then the API key.
 
-## Quản lý combos
+Messages containing an API key or callback URL are deleted immediately after receipt. API keys are not stored in bot state, and an OAuth verifier remains only in memory until the operation completes or is cancelled.
 
-Trong menu `Combos`, chọn `Thêm combo` hoặc `Điều chỉnh`. Bot hiển thị provider đang hoạt động trước, sau đó tải và phân trang danh sách model của provider đã chọn. Có thể chọn nhiều model, quay lại provider khác và tiếp tục chọn; dấu `✅` thể hiện model/provider đã được chọn.
+Select `Manage` to open an existing connection. You can disconnect, reconnect, or permanently delete it. Deletion always requires confirmation.
 
-Nút `Nhập thủ công` vẫn cho phép nhập danh sách model phân cách bằng dấu phẩy hoặc xuống dòng, ví dụ:
+## Managing Combos
+
+Open `Combos` and select `Add combo` or `Manage`. The bot lists active providers first, then loads and paginates the models for the selected provider. You can select multiple models, return to another provider, and continue selecting. A `✅` marks selected models and providers.
+
+Manual entry remains available for a comma-separated or newline-separated model list, for example:
 
 ```text
 cx/gpt-5.3-codex, cc/claude-sonnet
 ```
 
-Mỗi combo có một trong ba strategy:
+Each combo supports one of three strategies:
 
-- `Fallback` — thử model theo thứ tự, chuyển sang model tiếp theo khi lỗi
-- `Round Robin` — luân phiên model giữa các request
-- `Fusion` — chạy panel model và dùng judge model để tổng hợp kết quả
+- `Fallback` — try models in order and move to the next model after an error
+- `Round Robin` — rotate models between requests
+- `Fusion` — run a panel of models and use a judge model to combine the result
 
-Khi tạo Fusion, bot mặc định dùng model đầu tiên làm judge. Có thể đổi judge trong màn hình chi tiết combo. Đổi tên hoặc xóa combo cũng cập nhật phần `comboStrategies` tương ứng trong settings.
+When creating a Fusion combo, the first selected model is the default judge. You can change the judge from the combo details screen. Renaming or deleting a combo also updates the corresponding `comboStrategies` entry in settings.
 
-Trong Quota Tracker, nút `Tất cả providers` tải tối đa 20 tài khoản đang hoạt động, tối đa 3 request song song. Mỗi quota được hiển thị bằng thanh tiến trình, phần trăm còn lại, lượng đã dùng và thời gian reset. Màn hình account và màn hình tổng hợp đều có nút quay về danh sách quota và menu chính.
+## Quota Tracker
 
-Nếu APIRouter chạy trong Docker, bot phải dùng cùng `DATA_DIR` volume để tạo đúng token CLI, hoặc chạy bot trong cùng container. Nếu Telegram báo bot đang dùng webhook, hãy xóa webhook của bot trước khi dùng long polling.
+In Quota Tracker, `All providers` loads up to 20 active accounts with no more than three concurrent requests. Each quota entry shows a progress bar, remaining percentage, used amount, and reset time. Both account and summary screens provide navigation back to the quota list and main menu.
+
+## Troubleshooting
+
+- If the bot does not start, confirm that `TELEGRAM_BOT_TOKEN` is present in `.env.local` and restart APIRouter.
+- If authentication fails, confirm that APIRouter is running at `APIRouter_BASE_URL` and use the current Web UI password.
+- If Telegram reports that the bot is using a webhook, remove the webhook before using long polling.
+- If access is denied, verify that the current chat ID is included in `TELEGRAM_ALLOWED_CHAT_IDS`.
