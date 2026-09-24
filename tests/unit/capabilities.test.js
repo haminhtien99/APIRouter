@@ -81,16 +81,19 @@ describe("getCapabilitiesForModel", () => {
     expect(getCapabilitiesForModel("kiro", "gpt-5.6-sol-thinking-agentic")).toMatchObject(kiroGpt56Expected);
   });
 
-  it("reports Codex GPT 6.0 Astra as a vision and thinking capable model", () => {
-    expect(getCapabilitiesForModel("codex", "gpt-6-astra")).toMatchObject({
-      vision: true,
-      reasoning: true,
-      search: true,
-      thinkingFormat: "openai",
-      contextWindow: 272000,
-      maxOutput: 128000,
-    });
-  });
+  it.each(["gpt-6-astra", "gpt-6-sol", "gpt-6-sol-review", "gpt-6-luna"])(
+    "reports Codex %s as a vision and thinking capable model",
+    (model) => {
+      expect(getCapabilitiesForModel("codex", model)).toMatchObject({
+        vision: true,
+        reasoning: true,
+        search: true,
+        thinkingFormat: "openai",
+        contextWindow: 272000,
+        maxOutput: 128000,
+      });
+    },
+  );
 
   it("CommandCode v4.1-flash is vision + effort capable", () => {
     expect(getCapabilitiesForModel("commandcode", "deepseek/deepseek-v4.1-flash")).toMatchObject({

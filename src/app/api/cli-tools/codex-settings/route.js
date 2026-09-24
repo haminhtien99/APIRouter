@@ -4,9 +4,16 @@ import { NextResponse } from "next/server";
 import { exec } from "child_process";
 import { promisify } from "util";
 import fs from "fs/promises";
+import os from "os";
 import path from "path";
 import { parseTOML, stringifyTOML } from "confbox";
 import { buildModelsList } from "@/app/api/v1/models/route";
+import {
+  buildAPIRouterProfile,
+  CODEX_APIROUTER_PROFILE_NAME,
+  hasAPIRouterConfig,
+  migrateBaseConfigToOfficial,
+} from "@/lib/codexProfileConfig";
 import {
   getCodexHome,
   getCodexModelCatalogPath,
@@ -19,7 +26,7 @@ const execAsync = promisify(exec);
 
 const getCodexDir = () => getCodexHome();
 const getCodexConfigPath = () => path.join(getCodexDir(), "config.toml");
-const getCodexAuthPath = () => path.join(getCodexDir(), "auth.json");
+const getAPIRouterProfilePath = () => path.join(getCodexDir(), `${CODEX_APIROUTER_PROFILE_NAME}.config.toml`);
 const getAPIRouterStatusSkillDir = () => path.join(getCodexDir(), "skills", "apirouter-status");
 const getAPIRouterStatusSkillPath = () => path.join(getAPIRouterStatusSkillDir(), "SKILL.md");
 
@@ -58,29 +65,29 @@ async function syncNativeModelCatalog(preferredModel) {
 // Flatten confbox-parsed TOML into a writable object, preserving nested tables
 const parsedToWritable = (obj) => obj ?? {};
 
-// Set a nested key from a flat dotted path, creating intermediate objects as needed
-const setNestedSection = (obj, dottedKey, value) => {
-  const keys = dottedKey.split(".");
-  let cur = obj;
-  for (let i = 0; i < keys.length - 1; i++) {
-    if (cur[keys[i]] == null || typeof cur[keys[i]] !== "object") {
-      cur[keys[i]] = {};
-    }
-    cur = cur[keys[i]];
+async function readTextFile(filePath) {
+  try {
+    return await fs.readFile(filePath, "utf-8");
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
   }
-  cur[keys[keys.length - 1]] = value;
-};
+}
 
-// Delete a nested key from a flat dotted path
-const deleteNestedSection = (obj, dottedKey) => {
-  const keys = dottedKey.split(".");
-  let cur = obj;
-  for (let i = 0; i < keys.length - 1; i++) {
-    cur = cur?.[keys[i]];
-    if (cur == null) return;
-  }
-  delete cur[keys[keys.length - 1]];
-};
+async function readTomlFile(filePath) {
+  const content = await readTextFile(filePath);
+  return {
+    content,
+    parsed: content ? parsedToWritable(parseTOML(content)) : {},
+  };
+}
+
+async function writeTomlFile(filePath, parsed) {
+  const temporaryPath = `${filePath}.tmp`;
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(temporaryPath, stringifyTOML(parsed), { mode: 0o600 });
+  await fs.rename(temporaryPath, filePath);
+}
 
 // Check if codex CLI is installed (via which/where or config file exists)
 const checkCodexInstalled = async () => {
@@ -94,30 +101,15 @@ const checkCodexInstalled = async () => {
     return true;
   } catch {
     try {
-      await fs.access(getCodexConfigPath());
+      await Promise.any([
+        fs.access(getCodexConfigPath()),
+        fs.access(getAPIRouterProfilePath()),
+      ]);
       return true;
     } catch {
       return false;
     }
   }
-};
-
-// Read current config.toml
-const readConfig = async () => {
-  try {
-    const configPath = getCodexConfigPath();
-    const content = await fs.readFile(configPath, "utf-8");
-    return content;
-  } catch (error) {
-    if (error.code === "ENOENT") return null;
-    throw error;
-  }
-};
-
-// Check if config has APIRouter settings
-const hasAPIRouterConfig = (config) => {
-  if (!config) return false;
-  return config.includes("model_provider = \"apirouter\"") || config.includes("[model_providers.apirouter]");
 };
 
 // GET - Check codex CLI and read current settings
@@ -133,16 +125,25 @@ export async function GET() {
       });
     }
 
-    const [config, modelCatalog] = await Promise.all([
-      readConfig(),
+    const [base, profile, modelCatalog] = await Promise.all([
+      readTomlFile(getCodexConfigPath()),
+      readTomlFile(getAPIRouterProfilePath()),
       getCodexModelCatalogStatus(),
     ]);
+    const hasProfile = hasAPIRouterConfig(profile.parsed, getCodexModelCatalogPath());
+    const hasLegacyConfig = hasAPIRouterConfig(base.parsed, getCodexModelCatalogPath());
+    const config = hasProfile ? profile.content : hasLegacyConfig ? base.content : null;
 
     return NextResponse.json({
       installed: true,
       config,
-      hasAPIRouter: hasAPIRouterConfig(config),
+      baseConfig: base.content,
+      profileConfig: profile.content,
+      hasAPIRouter: hasProfile || hasLegacyConfig,
+      usesProfile: hasProfile,
       configPath: getCodexConfigPath(),
+      profilePath: getAPIRouterProfilePath(),
+      launchCommand: `codex -p ${CODEX_APIROUTER_PROFILE_NAME}`,
       statusSkillPath: getAPIRouterStatusSkillPath(),
       modelCatalog,
     });
@@ -152,7 +153,7 @@ export async function GET() {
   }
 }
 
-// POST - Update APIRouter settings (merge with existing config)
+// POST - Store APIRouter in an isolated Codex profile and keep base config official.
 export async function POST(request) {
   try {
     const { baseUrl, apiKey, model, subagentModel } = await request.json();
@@ -163,47 +164,40 @@ export async function POST(request) {
 
     const codexDir = getCodexDir();
     const configPath = getCodexConfigPath();
+    const profilePath = getAPIRouterProfilePath();
 
     // Ensure directory exists
     await fs.mkdir(codexDir, { recursive: true });
 
-    // Read and parse existing config
-    let parsed = {};
-    try {
-      const existingConfig = await fs.readFile(configPath, "utf-8");
-      parsed = parsedToWritable(parseTOML(existingConfig));
-    } catch { /* No existing config */ }
-
-    // Update only APIRouter related fields (api_key goes to auth.json, not config.toml)
-    parsed.model = model;
-    parsed.model_provider = "apirouter";
     const modelCatalog = await syncNativeModelCatalog(model);
-    parsed.model_catalog_json = modelCatalog.path;
-
-    // Update or create apirouter provider section (no api_key - Codex reads from auth.json)
-    // Ensure /v1 suffix is added only once
     const normalizedBaseUrl = baseUrl.endsWith("/v1") ? baseUrl : `${baseUrl}/v1`;
-    // Custom providers ignore auth.json - the key must travel as a static header
-    setNestedSection(parsed, "model_providers.apirouter", {
-      name: "APIRouter",
-      base_url: normalizedBaseUrl,
-      wire_api: "responses",
-      http_headers: { Authorization: `Bearer ${apiKey}` },
+    const [base, existingProfile] = await Promise.all([
+      readTomlFile(configPath),
+      readTomlFile(profilePath),
+    ]);
+    const officialBase = migrateBaseConfigToOfficial(base.parsed, {
+      catalogPath: getCodexModelCatalogPath(),
+    });
+    const profile = buildAPIRouterProfile(existingProfile.parsed, {
+      baseUrl: normalizedBaseUrl,
+      apiKey,
+      model,
+      subagentModel,
+      catalogPath: modelCatalog.path,
     });
 
-    // Subagent model is a scalar under [agents]; agents.<role> now means a custom role
-    deleteNestedSection(parsed, "agents.subagent");
-    setNestedSection(parsed, "agents.default_subagent_model", subagentModel || model);
-
-    // Write merged config
-    const configContent = stringifyTOML(parsed);
-    await fs.writeFile(configPath, configContent);
+    await Promise.all([
+      writeTomlFile(configPath, officialBase),
+      writeTomlFile(profilePath, profile),
+    ]);
     await installAPIRouterStatusSkill();
 
     return NextResponse.json({
       success: true,
-      message: "Codex settings applied successfully!",
+      message: `APIRouter profile saved. Start Codex with: codex -p ${CODEX_APIROUTER_PROFILE_NAME}`,
       configPath,
+      profilePath,
+      launchCommand: `codex -p ${CODEX_APIROUTER_PROFILE_NAME}`,
       statusSkillPath: getAPIRouterStatusSkillPath(),
       modelCatalog,
     });
@@ -216,24 +210,16 @@ export async function POST(request) {
 // PUT - Refresh native /model catalog without changing provider credentials
 export async function PUT() {
   try {
-    const configPath = getCodexConfigPath();
-    let parsed = {};
-    try {
-      parsed = parsedToWritable(parseTOML(await fs.readFile(configPath, "utf-8")));
-    } catch (error) {
-      if (error.code === "ENOENT") {
-        return NextResponse.json({ error: "Configure Codex with APIRouter first" }, { status: 400 });
-      }
-      throw error;
-    }
+    const profilePath = getAPIRouterProfilePath();
+    const { content, parsed } = await readTomlFile(profilePath);
 
-    if (parsed.model_provider !== "apirouter") {
-      return NextResponse.json({ error: "Codex is not configured to use APIRouter" }, { status: 400 });
+    if (!content || parsed.model_provider !== CODEX_APIROUTER_PROFILE_NAME) {
+      return NextResponse.json({ error: "Configure the Codex APIRouter profile first" }, { status: 400 });
     }
 
     const modelCatalog = await syncNativeModelCatalog(parsed.model);
     parsed.model_catalog_json = modelCatalog.path;
-    await fs.writeFile(configPath, stringifyTOML(parsed));
+    await writeTomlFile(profilePath, parsed);
 
     return NextResponse.json({
       success: true,
@@ -246,46 +232,20 @@ export async function PUT() {
   }
 }
 
-// DELETE - Remove APIRouter settings only (keep other settings)
+// DELETE - Remove only the APIRouter profile and artifacts; preserve official auth.
 export async function DELETE() {
   try {
     const configPath = getCodexConfigPath();
-
-    // Read and parse existing config
-    let parsed = {};
-    try {
-      const existingConfig = await fs.readFile(configPath, "utf-8");
-      parsed = parsedToWritable(parseTOML(existingConfig));
-    } catch (error) {
-      if (error.code === "ENOENT") {
-        return NextResponse.json({
-          success: true,
-          message: "No config file to reset",
-        });
-      }
-      throw error;
+    const base = await readTomlFile(configPath);
+    if (base.content) {
+      await writeTomlFile(
+        configPath,
+        migrateBaseConfigToOfficial(base.parsed, {
+          catalogPath: getCodexModelCatalogPath(),
+        }),
+      );
     }
-
-    // Remove APIRouter related root fields only if they point to apirouter
-    if (parsed.model_provider === "apirouter") {
-      delete parsed.model;
-      delete parsed.model_provider;
-    }
-
-    // Remove apirouter provider section
-    deleteNestedSection(parsed, "model_providers.apirouter");
-
-    if (parsed.model_catalog_json === getCodexModelCatalogPath()) {
-      delete parsed.model_catalog_json;
-    }
-
-    // Remove subagent configuration (both the current key and the legacy role form)
-    deleteNestedSection(parsed, "agents.default_subagent_model");
-    deleteNestedSection(parsed, "agents.subagent");
-
-    // Write updated config
-    const configContent = stringifyTOML(parsed);
-    await fs.writeFile(configPath, configContent);
+    await fs.rm(getAPIRouterProfilePath(), { force: true });
 
     try {
       await fs.rm(getAPIRouterStatusSkillDir(), { recursive: true, force: true });
@@ -293,25 +253,9 @@ export async function DELETE() {
 
     await removeCodexModelCatalog();
 
-    // Remove OPENAI_API_KEY from auth.json
-    const authPath = getCodexAuthPath();
-    try {
-      const existingAuth = await fs.readFile(authPath, "utf-8");
-      const authData = JSON.parse(existingAuth);
-      delete authData.OPENAI_API_KEY;
-      delete authData.auth_mode;
-
-      // Write back or delete if empty
-      if (Object.keys(authData).length === 0) {
-        await fs.unlink(authPath);
-      } else {
-        await fs.writeFile(authPath, JSON.stringify(authData, null, 2));
-      }
-    } catch { /* No auth file */ }
-
     return NextResponse.json({
       success: true,
-      message: "APIRouter settings removed successfully",
+      message: "APIRouter profile removed. Official Codex config and login were preserved.",
     });
   } catch (error) {
     console.log("Error resetting codex settings:", error);

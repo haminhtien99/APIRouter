@@ -123,7 +123,7 @@ export default function CodexToolCard({ tool, isExpanded, onToggle, baseUrl, api
       if (res.ok) {
         // Remember the endpoint so it stays selectable next time
         rememberEndpoint(getEffectiveBaseUrl(), { tunnelPublicUrl, tailscaleUrl });
-        setMessage({ type: "success", text: "Settings applied successfully!" });
+        setMessage({ type: "success", text: data.message || "APIRouter profile saved. Start with codex -p apirouter." });
         checkCodexStatus();
       } else {
         setMessage({ type: "error", text: data.error || "Failed to apply settings" });
@@ -142,7 +142,7 @@ export default function CodexToolCard({ tool, isExpanded, onToggle, baseUrl, api
       const res = await fetch("/api/cli-tools/codex-settings", { method: "DELETE" });
       const data = await res.json();
       if (res.ok) {
-        setMessage({ type: "success", text: "Settings reset successfully!" });
+        setMessage({ type: "success", text: data.message || "APIRouter profile removed. Official Codex remains configured." });
         setSelectedModel("");
         setSubagentModel("");
         checkCodexStatus();
@@ -194,10 +194,12 @@ export default function CodexToolCard({ tool, isExpanded, onToggle, baseUrl, api
 
     const effectiveSubagentModel = subagentModel || selectedModel;
 
-    const configContent = `# APIRouter Configuration for Codex CLI
+    const configContent = `# APIRouter profile for Codex CLI
+# Start with: codex -p apirouter
 model = "${selectedModel}"
 model_provider = "apirouter"
-# APIRouter's Apply/Sync action adds model_catalog_json with an absolute path.
+# Replace <CODEX_HOME> with the absolute path to ~/.codex.
+model_catalog_json = "<CODEX_HOME>/apirouter-models.json"
 
 [model_providers.apirouter]
 name = "APIRouter"
@@ -213,7 +215,7 @@ default_subagent_model = "${effectiveSubagentModel}"
 
     return [
       {
-        filename: "~/.codex/config.toml",
+        filename: "~/.codex/apirouter.config.toml",
         content: configContent,
       },
     ];
@@ -280,8 +282,8 @@ default_subagent_model = "${effectiveSubagentModel}"
                     <p className="text-text-muted">After installation, run <code className="px-1 bg-black/5 dark:bg-white/5 rounded">codex</code> to verify.</p>
                     <div className="pt-2 border-t border-border">
                       <p className="text-text-muted text-xs">
-                        Codex reads custom providers from <code className="px-1 bg-black/5 dark:bg-white/5 rounded">~/.codex/config.toml</code>.
-                        Click &quot;Apply&quot; to auto-configure.
+                        APIRouter is stored in <code className="px-1 bg-black/5 dark:bg-white/5 rounded">~/.codex/apirouter.config.toml</code>.
+                        Start it with <code className="px-1 bg-black/5 dark:bg-white/5 rounded">codex -p apirouter</code>.
                       </p>
                     </div>
                   </div>
@@ -385,6 +387,13 @@ default_subagent_model = "${effectiveSubagentModel}"
                   <span>
                     Native <code>/model</code>: {codexStatus.modelCatalog.modelCount} APIRouter models and combos
                   </span>
+                </div>
+              )}
+
+              {codexStatus?.hasAPIRouter && (
+                <div className="rounded-lg border border-border bg-surface/40 px-3 py-2 text-xs text-text-muted">
+                  <div><strong className="text-text-main">Official:</strong> <code>codex</code></div>
+                  <div><strong className="text-text-main">APIRouter:</strong> <code>{codexStatus.launchCommand || "codex -p apirouter"}</code></div>
                 </div>
               )}
 

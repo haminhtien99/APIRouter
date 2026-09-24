@@ -12,6 +12,17 @@ import { getModelInfoCore } from "../../open-sse/services/model.js";
 // through prefix inference to the "openai" default and failed with
 // "No active credentials for provider: openai".
 describe("codex auto-review routing (#1398)", () => {
+  it("exposes current GPT-6 Codex models before legacy GPT-5.6 models", () => {
+    const modelIds = getProviderModels("cx").map((model) => model.id);
+
+    expect(modelIds).toContain("gpt-6-sol");
+    expect(modelIds).toContain("gpt-6-sol-review");
+    expect(modelIds).toContain("gpt-6-luna");
+    expect(modelIds.indexOf("gpt-6-sol")).toBeLessThan(modelIds.indexOf("gpt-5.6-sol"));
+    expect(getModelUpstreamId("cx", "gpt-6-sol-review")).toBe("gpt-6-sol");
+    expect(getModelQuotaFamily("cx", "gpt-6-sol-review")).toBe("review");
+  });
+
   it("routes the bare Codex auto-review model to the OAuth Codex provider", async () => {
     await expect(getModelInfoCore("codex-auto-review", {})).resolves.toEqual({
       provider: "codex",

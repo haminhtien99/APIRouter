@@ -59,11 +59,15 @@ function parseCodexConfig(content) {
 
 function readCodexConfig() {
   const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
-  try {
-    return parseCodexConfig(fs.readFileSync(path.join(codexHome, "config.toml"), "utf8"));
-  } catch {
-    return parseCodexConfig("");
+  for (const fileName of ["apirouter.config.toml", "config.toml"]) {
+    try {
+      const parsed = parseCodexConfig(fs.readFileSync(path.join(codexHome, fileName), "utf8"));
+      if (parsed.modelProvider === "apirouter" || fileName === "config.toml") return parsed;
+    } catch {
+      // Try the next config layer.
+    }
   }
+  return parseCodexConfig("");
 }
 
 function resolveEndpoint(options, codex) {
@@ -325,6 +329,7 @@ module.exports = {
   run,
   parseArgs,
   parseCodexConfig,
+  readCodexConfig,
   resolveEndpoint,
   buildStatus,
   renderStatus,

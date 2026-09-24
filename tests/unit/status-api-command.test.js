@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 const require = createRequire(import.meta.url);
-const { parseArgs, parseCodexConfig, resolveEndpoint, buildStatus, renderStatus, quotaBar } = require("../../cli/src/cli/commands/statusApi");
+const { parseArgs, parseCodexConfig, readCodexConfig, resolveEndpoint, buildStatus, renderStatus, quotaBar } = require("../../cli/src/cli/commands/statusApi");
 
 test("status-api parses supported aliases and periods", () => {
   assert.deepEqual(parseArgs(["--host", "localhost", "--port", "8080", "--period", "today", "--json"]), {
@@ -50,6 +53,34 @@ test("status-api follows the endpoint configured for Codex", () => {
     ),
     { host: "localhost", port: 8090, protocol: "http:" },
   );
+});
+
+test("status-api prefers the APIRouter profile over the official base config", () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), "codex-profile-"));
+  const previous = process.env.CODEX_HOME;
+  process.env.CODEX_HOME = codexHome;
+  try {
+    fs.writeFileSync(path.join(codexHome, "config.toml"), `
+model = "gpt-6-sol"
+model_provider = "openai"
+`);
+    fs.writeFileSync(path.join(codexHome, "apirouter.config.toml"), `
+model = "cx/gpt-6-sol"
+model_provider = "apirouter"
+
+[model_providers.apirouter]
+base_url = "http://127.0.0.1:20228/v1"
+`);
+    assert.deepEqual(readCodexConfig(), {
+      model: "cx/gpt-6-sol",
+      modelProvider: "apirouter",
+      baseUrl: "http://127.0.0.1:20228/v1",
+    });
+  } finally {
+    if (previous === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previous;
+    fs.rmSync(codexHome, { recursive: true, force: true });
+  }
 });
 
 test("status-api resolves the selected model as a combo", () => {
