@@ -25,7 +25,17 @@ npm --prefix cli install
 npm run local:build
 ```
 
+To make `apirouter` available from any directory, run `npm link` once from the project root. The command points to this checkout; after source changes, rebuild with `npm run local:build`, and relink only if you move the project.
+
 ## Run
+
+After linking, run from any directory:
+
+```bash
+apirouter
+```
+
+Without the link, run from the project root:
 
 ```bash
 ./apirouter

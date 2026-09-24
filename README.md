@@ -20,7 +20,23 @@ npm --prefix cli install
 npm run local:build
 ```
 
+To run APIRouter from any directory, link the command once from the project root:
+
+```bash
+npm link
+```
+
+The link points to this checkout. After changing the source, run `npm run local:build` again; you do not need to repeat `npm link` unless you move the project.
+
 ## Start
+
+After linking, run from any directory:
+
+```bash
+apirouter
+```
+
+Without the link, run from the project root:
 
 ```bash
 ./apirouter
