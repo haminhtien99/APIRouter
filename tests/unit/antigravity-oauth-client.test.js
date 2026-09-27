@@ -15,6 +15,15 @@ process.env.GOOGLE_OAUTH_CLIENT_ID = GOOGLE.clientId;
 process.env.GOOGLE_OAUTH_CLIENT_SECRET = GOOGLE.clientSecret;
 
 describe("antigravity oauth client (deduped)", () => {
+  it("reports missing OAuth credentials before sending the user to Google", async () => {
+    const antigravity = (await import("../../src/lib/oauth/providers/antigravity.js")).default;
+    expect(() => antigravity.buildAuthUrl(
+      { ...antigravity.config, clientId: "", clientSecret: "" },
+      "http://localhost:20127/callback",
+      "test-state"
+    )).toThrow("ANTIGRAVITY_OAUTH_CLIENT_ID and ANTIGRAVITY_OAUTH_CLIENT_SECRET");
+  });
+
   it("loads canonical credentials from the environment", async () => {
     const { ANTIGRAVITY_OAUTH_CLIENT } = await import("../../open-sse/providers/shared.js");
     expect(ANTIGRAVITY_OAUTH_CLIENT).toEqual(EXPECTED);

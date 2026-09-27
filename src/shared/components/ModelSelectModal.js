@@ -23,6 +23,7 @@ const NO_AUTH_PROVIDER_IDS = Object.keys(FREE_PROVIDERS).filter(id => FREE_PROVI
 // Providers with per-account live catalogs via /api/providers/[id]/models.
 // Static registry stays as fallback when live fetch fails or is empty.
 const LIVE_CATALOG_PROVIDERS = ["cursor", "cline", "clinepass"];
+const MAX_VISIBLE_ACCOUNT_MODELS = 100;
 
 // Fetch a provider's account-scoped catalog for every active connection and merge
 // the results. Entries collapse by model id on purpose: two connections of the
@@ -68,6 +69,63 @@ function useLiveProviderModels(isOpen, connectionIds, label) {
   return models;
 }
 
+// In provider-first mode, request only the chosen account's catalog. Keep the
+// static registry as a fallback for providers without a models endpoint.
+function useSelectedAccountModels(isOpen, connection) {
+  const [catalog, setCatalog] = useState({ connectionId: null, models: [], loading: false, warning: null });
+  const connectionId = connection?.id;
+  const providerId = connection?.provider;
+
+  useEffect(() => {
+    if (!isOpen || !connectionId) return undefined;
+    let cancelled = false;
+    fetch(`/api/providers/${connectionId}/models`, { cache: "no-store", signal: AbortSignal.timeout(10000) })
+      .then(async (response) => ({
+        ok: response.ok,
+        unsupported: response.status === 400,
+        data: await response.json().catch(() => null),
+      }))
+      .then(({ ok, unsupported, data }) => {
+        if (cancelled) return;
+        const models = ok && Array.isArray(data?.models) ? data.models : [];
+        setCatalog({
+          connectionId,
+          loading: false,
+          warning: data?.warning
+            ? "Live model list unavailable; showing configured models."
+            : (!ok && !unsupported ? "Live model list unavailable; showing configured models." : null),
+          models: models.map((model) => {
+            const rawId = model?.id || model?.name;
+            if (typeof rawId !== "string" || !rawId) return null;
+            const id = providerId === "gemini"
+              ? rawId.replace(/^models\//, "")
+              : providerId === "qoder"
+                ? rawId.replace(/^qoder\//, "")
+                : rawId;
+            const rawKind = model?.kind || model?.type;
+            const kind = ["image", "tts", "stt", "embedding", "imageToText", "video", "music"].includes(rawKind)
+              ? rawKind
+              : "llm";
+            return { ...model, id, name: model?.displayName || model?.name || id, kind };
+          }).filter(Boolean),
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setCatalog({
+          connectionId,
+          models: [],
+          loading: false,
+          warning: "Live model list unavailable; showing configured models.",
+        });
+      });
+    return () => { cancelled = true; };
+  }, [isOpen, connectionId, providerId]);
+
+  return catalog.connectionId === connectionId
+    ? catalog
+    : { connectionId, models: [], loading: !!connectionId && isOpen, warning: null };
+}
+
 export default function ModelSelectModal({
   isOpen,
   onClose,
@@ -81,22 +139,52 @@ export default function ModelSelectModal({
   capFilter = null,
   addedModelValues = [],
   closeOnSelect = true,
+  providerFirst = false,
 }) {
   // Filter activeProviders by serviceKinds when kindFilter set (e.g. "webSearch", "webFetch")
   const filteredActiveProviders = useMemo(() => {
-    if (!kindFilter) return activeProviders;
-    return activeProviders.filter((p) => {
+    const available = providerFirst ? activeProviders.filter((p) => p.isActive !== false) : activeProviders;
+    if (!kindFilter) return available;
+    return available.filter((p) => {
       const info = AI_PROVIDERS[p.provider];
       const kinds = info?.serviceKinds || ["llm"];
       return kinds.includes(kindFilter);
     });
-  }, [activeProviders, kindFilter]);
+  }, [activeProviders, kindFilter, providerFirst]);
   const { getCaps } = useModelCaps();
   const [searchQuery, setSearchQuery] = useState("");
   const [combos, setCombos] = useState([]);
   const [providerNodes, setProviderNodes] = useState([]);
   const [customModels, setCustomModels] = useState([]);
   const [disabledModels, setDisabledModels] = useState({});
+  const [selectedSource, setSelectedSource] = useState(null);
+  const availableSources = useMemo(() => {
+    const connections = filteredActiveProviders.map((connection) => ({
+      key: `connection:${connection.id}`,
+      providerId: connection.provider,
+      connection,
+    }));
+    const noAuthIds = NO_AUTH_PROVIDER_IDS.filter((id) =>
+      !kindFilter || (AI_PROVIDERS[id]?.serviceKinds || ["llm"]).includes(kindFilter)
+    );
+    const noAuth = noAuthIds
+      .filter((id) => !connections.some((source) => source.providerId === id))
+      .map((id) => ({ key: `provider:${id}`, providerId: id, connection: null }));
+    return [...connections, ...noAuth].sort((a, b) => {
+      const rank = (id) => {
+        const index = PROVIDER_ORDER.indexOf(id);
+        return index === -1 ? 999 : index;
+      };
+      return rank(a.providerId) - rank(b.providerId);
+    });
+  }, [filteredActiveProviders, kindFilter]);
+  const selectedSourceEntry = availableSources.find((source) => source.key === selectedSource);
+  const selectedConnection = selectedSourceEntry?.connection;
+  const selectedProviderId = selectedSourceEntry?.providerId;
+  const selectedCatalog = useSelectedAccountModels(
+    providerFirst && isOpen && kindFilter !== "webSearch" && kindFilter !== "webFetch",
+    selectedConnection
+  );
   // Cursor and Cline expose the usable catalog per account, so the static catalog is
   // kept only as a fallback: it goes stale quickly and entitlements differ per account.
   // Single map driven by LIVE_CATALOG_PROVIDERS so the constant cannot drift
@@ -104,18 +192,19 @@ export default function ModelSelectModal({
   // activeProviders itself changes.
   const liveConnectionIdsByProvider = useMemo(() => {
     const map = Object.fromEntries(LIVE_CATALOG_PROVIDERS.map((id) => [id, []]));
-    for (const p of activeProviders) {
+    for (const p of filteredActiveProviders) {
+      if (providerFirst && p.id !== selectedConnection?.id) continue;
       if (p?.id && Object.prototype.hasOwnProperty.call(map, p.provider)) map[p.provider].push(p.id);
     }
     return map;
-  }, [activeProviders]);
+  }, [filteredActiveProviders, providerFirst, selectedConnection?.id]);
   const cursorConnectionIds = liveConnectionIdsByProvider.cursor;
   const clineConnectionIds = liveConnectionIdsByProvider.cline;
   const clinepassConnectionIds = liveConnectionIdsByProvider.clinepass;
 
-  const cursorModels = useLiveProviderModels(isOpen, cursorConnectionIds, "Cursor");
-  const clineModels = useLiveProviderModels(isOpen, clineConnectionIds, "Cline");
-  const clinepassModels = useLiveProviderModels(isOpen, clinepassConnectionIds, "ClinePass");
+  const cursorModels = useLiveProviderModels(isOpen && !providerFirst, cursorConnectionIds, "Cursor");
+  const clineModels = useLiveProviderModels(isOpen && !providerFirst, clineConnectionIds, "Cline");
+  const clinepassModels = useLiveProviderModels(isOpen && !providerFirst, clinepassConnectionIds, "ClinePass");
 
   const fetchCombos = async () => {
     try {
@@ -130,8 +219,8 @@ export default function ModelSelectModal({
   };
 
   useEffect(() => {
-    if (isOpen) fetchCombos();
-  }, [isOpen]);
+    if (isOpen && !providerFirst) fetchCombos();
+  }, [isOpen, providerFirst]);
 
   const fetchProviderNodes = async () => {
     try {
@@ -205,10 +294,12 @@ export default function ModelSelectModal({
     };
 
     // Get all active provider IDs from connections (filtered by kindFilter if set)
-    const activeConnectionIds = filteredActiveProviders.map(p => p.provider);
+    const activeConnectionIds = providerFirst
+      ? (selectedProviderId ? [selectedProviderId] : [])
+      : filteredActiveProviders.map(p => p.provider);
 
     // No-auth providers: filter by kindFilter as well
-    const noAuthIds = kindFilter
+    const noAuthIds = providerFirst ? [] : kindFilter
       ? NO_AUTH_PROVIDER_IDS.filter((id) => (AI_PROVIDERS[id]?.serviceKinds || ["llm"]).includes(kindFilter))
       : NO_AUTH_PROVIDER_IDS;
 
@@ -241,6 +332,10 @@ export default function ModelSelectModal({
         return;
       }
 
+      const accountModels = providerFirst && selectedCatalog.connectionId === selectedConnection?.id
+        ? selectedCatalog.models
+        : [];
+
       if (providerInfo.passthroughModels) {
         const aliasModels = Object.entries(modelAliases)
           .filter(([, fullModel]) => fullModel.startsWith(`${alias}/`))
@@ -265,7 +360,7 @@ export default function ModelSelectModal({
           const registeredTyped = customRegisteredModels.filter((m) => getModelKind(m) === kindFilter);
           combined = [
             ...registeredTyped,
-            ...getModelsByProviderId(providerId)
+            ...(accountModels.length > 0 ? accountModels : getModelsByProviderId(providerId))
             .filter((m) => getModelKind(m) === kindFilter)
             .map((m) => ({ id: m.id, name: m.name, value: `${alias}/${m.id}`, kind: getModelKind(m) }))
             .filter((m) => !registeredTyped.some((registered) => registered.value === m.value)),
@@ -279,7 +374,7 @@ export default function ModelSelectModal({
           // LLM/null kind: merge hardcoded models (e.g. mimo-free → mimo-auto) with user-added models
           const registeredLlms = customRegisteredModels.filter((m) => !getModelKind(m) || getModelKind(m) === "llm");
           const seen = new Set([...aliasModels, ...registeredLlms].map((m) => m.value));
-          const hardcoded = getModelsByProviderId(providerId)
+          const hardcoded = (accountModels.length > 0 ? accountModels : getModelsByProviderId(providerId))
             .filter((m) => !getModelKind(m) || getModelKind(m) === "llm")
             .map((m) => ({ id: m.id, name: m.name, value: `${alias}/${m.id}`, kind: getModelKind(m) }))
             .filter((m) => !seen.has(m.value));
@@ -302,7 +397,9 @@ export default function ModelSelectModal({
         // Custom (openai/anthropic-compatible) providers are LLM-only — skip for typed media kinds
         if (kindFilter && TYPED_KINDS.has(kindFilter)) return;
         // Find connection object to get prefix synchronously without waiting for providerNodes fetch
-        const connection = activeProviders.find(p => p.provider === providerId);
+        const connection = providerFirst
+          ? selectedConnection
+          : activeProviders.find(p => p.provider === providerId);
         const matchedNode = providerNodes.find(node => node.id === providerId);
         const displayName = matchedNode?.name || connection?.name || providerInfo.name;
         const nodePrefix = connection?.providerSpecificData?.prefix || matchedNode?.prefix || providerId;
@@ -328,7 +425,16 @@ export default function ModelSelectModal({
             isCustom: true,
           }));
         const seen = new Set(nodeModels.map((m) => m.value));
-        const mergedModels = [...nodeModels, ...registeredCustom.filter((m) => !seen.has(m.value))];
+        const liveModels = accountModels.map((m) => ({
+          id: m.id,
+          name: m.name || m.id,
+          value: `${nodePrefix}/${m.id}`,
+        }));
+        const mergedModels = [
+          ...nodeModels,
+          ...registeredCustom.filter((m) => !seen.has(m.value)),
+          ...liveModels.filter((m) => !seen.has(m.value) && !registeredCustom.some((custom) => custom.value === m.value)),
+        ];
 
         // Always show compatible providers that are connected, even with no aliases.
         // When no aliases exist, show a placeholder so users know it's available.
@@ -349,8 +455,10 @@ export default function ModelSelectModal({
         };
       } else {
         const liveModels = providerId === "cursor" ? cursorModels : providerId === "cline" ? clineModels : providerId === "clinepass" ? clinepassModels : [];
-        const hardcodedModels = liveModels.length > 0
-          ? liveModels
+        const hardcodedModels = accountModels.length > 0
+          ? accountModels
+          : liveModels.length > 0
+            ? liveModels
           : getModelsByProviderId(providerId);
         const hardcodedIds = new Set(hardcodedModels.map((m) => m.id));
 
@@ -420,26 +528,24 @@ export default function ModelSelectModal({
     });
 
     return groups;
-  }, [filteredActiveProviders, modelAliases, allProviders, providerNodes, customModels, disabledModels, kindFilter, activeProviders, cursorModels, clineModels, clinepassModels]);
+  }, [filteredActiveProviders, modelAliases, allProviders, providerNodes, customModels, disabledModels, kindFilter, activeProviders, cursorModels, clineModels, clinepassModels, providerFirst, selectedProviderId, selectedConnection, selectedCatalog]);
 
   // Filter combos by search query (and hide combos when kindFilter is set — combos are LLM-only by design)
   const filteredCombos = useMemo(() => {
-    if (kindFilter || capFilter) return [];
+    if (kindFilter || capFilter || providerFirst) return [];
     if (!searchQuery.trim()) return combos;
     const query = searchQuery.toLowerCase();
     return combos.filter(c => c.name.toLowerCase().includes(query));
-  }, [combos, searchQuery, kindFilter]);
-
-  // Sort models alphabetically, with added models floated to top
-  const sortModels = (models) => {
-    const added = models.filter(m => addedModelValues.includes(m.value)).sort((a, b) => a.name.localeCompare(b.name));
-    const rest = models.filter(m => !addedModelValues.includes(m.value)).sort((a, b) => a.name.localeCompare(b.name));
-    return [...added, ...rest];
-  };
+  }, [combos, searchQuery, kindFilter, capFilter, providerFirst]);
 
   // Filter models by search query
   const filteredGroups = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
+    const sortModels = (models) => {
+      const added = models.filter(m => addedModelValues.includes(m.value)).sort((a, b) => a.name.localeCompare(b.name));
+      const rest = models.filter(m => !addedModelValues.includes(m.value)).sort((a, b) => a.name.localeCompare(b.name));
+      return [...added, ...rest];
+    };
 
     const filtered = {};
     Object.entries(groupedModels).forEach(([providerId, group]) => {
@@ -450,13 +556,12 @@ export default function ModelSelectModal({
         if (models.length === 0) return;
       }
       if (query) {
-        const providerNameMatches = group.name.toLowerCase().includes(query);
         models = models.filter(
           (m) =>
             m.name.toLowerCase().includes(query) ||
             m.id.toLowerCase().includes(query)
         );
-        if (models.length === 0 && !providerNameMatches) return;
+        if (models.length === 0) return;
       }
       filtered[providerId] = {
         ...group,
@@ -465,7 +570,23 @@ export default function ModelSelectModal({
     });
 
     return filtered;
-  }, [groupedModels, searchQuery, addedModelValues]);
+  }, [groupedModels, searchQuery, addedModelValues, capFilter, getCaps]);
+
+  const visibleSources = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return availableSources;
+    return availableSources.filter(({ providerId, connection }) => {
+      const providerName = allProviders[providerId]?.name || connection?.name || providerId;
+      return [providerName, providerId, connection?.name, connection?.displayName, connection?.email]
+        .some((value) => value?.toLowerCase().includes(query));
+    });
+  }, [availableSources, allProviders, searchQuery]);
+
+  const closePicker = () => {
+    onClose();
+    setSearchQuery("");
+    setSelectedSource(null);
+  };
 
   const handleSelect = (model) => {
     const value = model?.value || model?.name || model;
@@ -478,28 +599,34 @@ export default function ModelSelectModal({
     }
 
     if (closeOnSelect) {
-      onClose();
-      setSearchQuery("");
+      closePicker();
     }
   };
 
   return (
     <Modal
       isOpen={isOpen}
-      onClose={() => {
-        onClose();
-        setSearchQuery("");
-      }}
+      onClose={closePicker}
       title={title}
       size="md"
       className="p-4!"
       footer={null}
     >
-      {/* Info bar */}
-      <div className="flex items-center gap-2 mb-3 px-2.5 py-2 bg-primary/8 border border-primary/20 rounded-lg text-xs text-text-muted">
-        <span className="material-symbols-outlined text-primary shrink-0" style={{ fontSize: "14px" }}>info</span>
-        <span>Click to add, click again to remove. Changes are saved automatically.</span>
-      </div>
+      {providerFirst && selectedSourceEntry ? (
+        <button
+          type="button"
+          onClick={() => { setSelectedSource(null); setSearchQuery(""); }}
+          className="mb-3 flex items-center gap-1 text-xs text-primary hover:underline"
+        >
+          <span className="material-symbols-outlined text-[16px]">arrow_back</span>
+          Change provider or account
+        </button>
+      ) : (
+        <div className="flex items-center gap-2 mb-3 px-2.5 py-2 bg-primary/8 border border-primary/20 rounded-lg text-xs text-text-muted">
+          <span className="material-symbols-outlined text-primary shrink-0" style={{ fontSize: "14px" }}>info</span>
+          <span>{providerFirst ? "Choose a connected provider or API key account to see its models." : "Click to add, click again to remove. Changes are saved automatically."}</span>
+        </div>
+      )}
 
       {/* Search - compact */}
       <div className="mb-3">
@@ -509,7 +636,7 @@ export default function ModelSelectModal({
           </span>
           <input
             type="text"
-            placeholder="Search..."
+            placeholder={providerFirst && !selectedSourceEntry ? "Search providers or accounts..." : "Search models..."}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-8 pr-3 py-1.5 bg-surface border border-border rounded text-xs focus:outline-none focus:ring-1 focus:ring-primary/50"
@@ -517,8 +644,54 @@ export default function ModelSelectModal({
         </div>
       </div>
 
-      {/* Models grouped by provider - compact */}
+      {/* Providers first for combo creation; models are mounted only after an account is chosen. */}
       <div className="max-h-[400px] overflow-y-auto space-y-3">
+        {providerFirst && !selectedSourceEntry ? (
+          visibleSources.length > 0 ? (
+            <div className="flex flex-col gap-1">
+              {visibleSources.map(({ key, providerId, connection }) => {
+                const providerInfo = allProviders[providerId] || { name: connection?.name || providerId, color: "#666" };
+                const accountName = connection?.displayName || connection?.email ||
+                  (connection?.name !== providerInfo.name ? connection?.name : null) ||
+                  `Account ${String(connection?.id).slice(0, 8)}`;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => { setSelectedSource(key); setSearchQuery(""); }}
+                    className="flex w-full items-center gap-2 rounded-lg border border-border px-2.5 py-2 text-left hover:border-primary/50 hover:bg-primary/5"
+                  >
+                    <ProviderIcon
+                      src={`/providers/${providerId}.png`}
+                      alt={providerInfo.name}
+                      size={20}
+                      fallbackText={providerInfo.name.slice(0, 2).toUpperCase()}
+                      fallbackColor={providerInfo.color}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-xs font-medium text-text-main">{providerInfo.name}</span>
+                      <span className="block truncate text-[11px] text-text-muted">{connection ? (accountName || "Connected account") : "No API key required"}</span>
+                    </span>
+                    <span className="material-symbols-outlined text-[16px] text-text-muted">chevron_right</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="py-5 text-center text-xs text-text-muted">
+              {availableSources.length === 0 ? "No active provider accounts available. Add or enable a provider first." : "No providers or accounts found."}
+            </p>
+          )
+        ) : (
+        <>
+        {providerFirst && selectedCatalog.loading && (
+          <p className="py-3 text-center text-xs text-text-muted">Loading models for this account...</p>
+        )}
+        {providerFirst && !selectedCatalog.loading && selectedCatalog.warning && (
+          <p className="text-[11px] text-amber-600 dark:text-amber-400">{selectedCatalog.warning}</p>
+        )}
+        {!providerFirst || !selectedCatalog.loading ? (
+        <>
         {/* Combos section - always first */}
         {filteredCombos.length > 0 && (
           <div>
@@ -576,7 +749,7 @@ export default function ModelSelectModal({
             </div>
 
             <div className="flex flex-wrap gap-1.5">
-              {group.models.map((model) => {
+              {group.models.slice(0, providerFirst ? MAX_VISIBLE_ACCOUNT_MODELS : group.models.length).map((model) => {
                 const isSelected = selectedModel === model.value;
                 const isPlaceholder = model.isPlaceholder;
                 return (
@@ -622,6 +795,11 @@ export default function ModelSelectModal({
                 );
               })}
             </div>
+            {providerFirst && group.models.length > MAX_VISIBLE_ACCOUNT_MODELS && (
+              <p className="mt-2 text-[11px] text-text-muted">
+                Showing the first {MAX_VISIBLE_ACCOUNT_MODELS} models. Search by name to find more.
+              </p>
+            )}
           </div>
         ))}
 
@@ -632,6 +810,10 @@ export default function ModelSelectModal({
             </span>
             <p className="text-xs">No models found</p>
           </div>
+        )}
+        </>
+        ) : null}
+        </>
         )}
       </div>
     </Modal>
@@ -654,4 +836,5 @@ ModelSelectModal.propTypes = {
   kindFilter: PropTypes.string,
   addedModelValues: PropTypes.arrayOf(PropTypes.string),
   closeOnSelect: PropTypes.bool,
+  providerFirst: PropTypes.bool,
 };

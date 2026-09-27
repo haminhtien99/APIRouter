@@ -4,6 +4,11 @@ const antigravity = {
   config: ANTIGRAVITY_CONFIG,
   flowType: "authorization_code",
   buildAuthUrl: (config, redirectUri, state) => {
+    if (!config.clientId?.trim() || !config.clientSecret?.trim()) {
+      throw new Error(
+        "Antigravity OAuth client credentials are missing. Set ANTIGRAVITY_OAUTH_CLIENT_ID and ANTIGRAVITY_OAUTH_CLIENT_SECRET in .env.local, then restart APIRouter."
+      );
+    }
     const params = new URLSearchParams({
       client_id: config.clientId,
       response_type: "code",
