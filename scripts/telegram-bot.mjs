@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createCodexTelegramBridge } from "./codex-telegram-bot.mjs";
 import {
   escapeHtml,
   formatCombos,
@@ -13,6 +14,7 @@ import {
   mainKeyboard,
   parseAllowedChatIds,
   createTelegramSessionStore,
+  renderCodexBody,
   splitMessage,
   usageKeyboard,
 } from "./telegram-bot-lib.mjs";
@@ -32,10 +34,22 @@ const apirouterBaseUrl = String(
 const allowedChatIds = parseAllowedChatIds(process.env.TELEGRAM_ALLOWED_CHAT_IDS);
 const cliToken = getCliToken();
 const sessionStore = createTelegramSessionStore({ dataDir: getDataDir() });
+const codexBridge = createCodexTelegramBridge({
+  dataDir: getDataDir(),
+  telegram,
+  send,
+  isAuthenticated,
+  sessionStore,
+  escapeHtml,
+});
 const loginLimiter = new LoginAttemptLimiter();
 const pendingLogins = new Set();
 const loginPromptMessages = new Map();
 const pendingActions = new Map();
+const codexOutputStreams = new Map();
+const CODEX_OUTPUT_STREAM_POLL_MS = 3_000;
+let refreshingCodexStreams = false;
+let codexStreamTimer = null;
 const TERMINAL_PROVIDERS = [
   { id: "claude", name: "Claude Code", authType: "oauth", flow: "callback" },
   { id: "codex", name: "OpenAI Codex", authType: "oauth", flow: "callback" },
@@ -403,6 +417,249 @@ async function showMenu(chatId, messageId) {
     "Choose a section:",
   ].join("\n");
   await editOrSend(chatId, messageId, text, mainKeyboard());
+}
+
+function escapeCodexPreview(value, limit) {
+  let result = "";
+  for (const char of String(value ?? "")) {
+    const escaped = escapeHtml(char);
+    if (result.length + escaped.length > limit) return `${result}…`;
+    result += escaped;
+  }
+  return result;
+}
+
+function codexProjectName(session) {
+  return session.cwd.split(/[\\/]/).filter(Boolean).at(-1) || "Unknown folder";
+}
+
+function codexSessionName(session) {
+  return String(session?.name || "Untitled session");
+}
+
+async function showCodexSessions(chatId, messageId, page = 0) {
+  const sessions = codexBridge.sessions({ force: true });
+  const watched = codexBridge.watchedSession(chatId);
+  const pendingIds = new Set(codexBridge.pendingRequests().map((event) => event.sessionId));
+  const pendingCount = sessions.filter((session) => pendingIds.has(session.id)).length;
+  const selectedSession = sessions.find((session) => session.id === watched);
+  const pageSize = 8;
+  const pageCount = Math.max(1, Math.ceil(sessions.length / pageSize));
+  const selectedPage = Math.max(0, Math.min(pageCount - 1, Number(page) || 0));
+  const shown = sessions.slice(selectedPage * pageSize, (selectedPage + 1) * pageSize);
+  const lines = [
+    "<b>🧭 Codex · APIRouter</b>",
+    `🟢 ${sessions.length} active  ·  🔐 ${pendingCount} awaiting approval`,
+    "",
+  ];
+  if (!sessions.length) lines.push("No active APIRouter session found.", "Start a CLI session, then refresh this list.");
+  for (const session of shown) {
+    const markers = [
+      pendingIds.has(session.id) ? "🔐" : "",
+      watched === session.id ? "👁" : "",
+    ].filter(Boolean);
+    lines.push(
+      `${markers.join(" ") || "•"} Name - "<b>${escapeHtml(codexSessionName(session))}</b>"`,
+      `    📁 ${escapeCodexPreview(codexProjectName(session), 80)}  ·  <code>${escapeHtml(session.id.slice(0, 8))}</code>`,
+      "",
+    );
+  }
+  if (sessions.length) lines.push("Choose a session to open its controls.");
+  const keyboard = shown.map((session) => {
+    const markers = [
+      pendingIds.has(session.id) ? "🔐" : "",
+      watched === session.id ? "👁" : "",
+    ].filter(Boolean).join(" ") || "🟢";
+    const folder = [...codexProjectName(session)];
+    const shortFolder = folder.length > 18 ? `${folder.slice(0, 17).join("")}…` : folder.join("");
+    return [{
+      text: `${markers} Open ${session.id.slice(0, 8)} · ${shortFolder}`,
+      callback_data: `codex-open:${session.id}`,
+    }];
+  });
+  if (pageCount > 1) {
+    keyboard.push([
+      { text: "◀️", callback_data: selectedPage ? `codex-page:${selectedPage - 1}` : "noop" },
+      { text: `${selectedPage + 1} / ${pageCount}`, callback_data: "noop" },
+      { text: "▶️", callback_data: selectedPage + 1 < pageCount ? `codex-page:${selectedPage + 1}` : "noop" },
+    ]);
+  }
+  if (watched) keyboard.push([{
+    text: selectedSession ? `👁 Following: ${selectedSession.id.slice(0, 8)}` : "👁 Followed session",
+    callback_data: "codex-detail",
+  }]);
+  keyboard.push([
+    { text: "🔄 Refresh", callback_data: `codex-page:${selectedPage}` },
+    { text: "⬅️ Menu", callback_data: "menu" },
+  ]);
+  await editOrSend(chatId, messageId, lines.join("\n"), { inline_keyboard: keyboard });
+}
+
+async function showCodexSession(chatId, messageId) {
+  const sessionId = codexBridge.watchedSession(chatId);
+  const session = sessionId && codexBridge.sessionById(sessionId);
+  if (!session) {
+    if (sessionId) codexBridge.unwatch(chatId);
+    return showCodexSessions(chatId, messageId);
+  }
+  const pending = codexBridge.pendingRequests(sessionId);
+  const lines = [
+    `<b>${pending.length ? "🔐" : "🟢"} Session</b>`,
+    `Name - "<b>${escapeHtml(codexSessionName(session))}</b>"`,
+    `${pending.length ? `${pending.length} approval request${pending.length === 1 ? "" : "s"} waiting` : "Active"}  ·  👁 Following`,
+    "",
+    `📁 <code>${escapeHtml(session.cwd.slice(0, 200) || "Unknown folder")}</code>`,
+    `ID <code>${escapeHtml(session.id)}</code>`,
+  ];
+  if (pending.length) {
+    const event = pending[0];
+    lines.push("", "<b>Approval request</b>");
+    if (event.toolName) lines.push(`Tool: <code>${escapeHtml(event.toolName)}</code>`);
+    if (event.detail) lines.push(`<pre>${escapeCodexPreview(event.detail, 2300)}</pre>`);
+  } else {
+    lines.push("", "No approval request waiting.");
+  }
+  const keyboard = [];
+  if (pending.length) {
+    keyboard.push([
+      { text: "✅ Allow", callback_data: `codex:allow:${pending[0].id}` },
+      { text: "⛔ Deny", callback_data: `codex:deny:${pending[0].id}` },
+    ]);
+  }
+  keyboard.push([{ text: "📝 Latest output", callback_data: "codex-output" }]);
+  keyboard.push([{ text: "▶️ Stream output", callback_data: "codex-stream" }]);
+  keyboard.push([{ text: "🔄 Refresh", callback_data: "codex-detail" }]);
+  keyboard.push([
+    { text: "📋 Sessions", callback_data: "codex-page:0" },
+    { text: "🔕 Stop following", callback_data: "codex-off" },
+  ]);
+  await editOrSend(chatId, messageId, lines.join("\n"), { inline_keyboard: keyboard });
+}
+
+async function showCodexOutput(chatId, messageId) {
+  const sessionId = codexBridge.watchedSession(chatId);
+  if (!sessionId || !codexBridge.sessionById(sessionId)) return showCodexSessions(chatId, messageId);
+  await editOrSend(chatId, messageId, renderCodexOutput(sessionId), {
+    inline_keyboard: [
+      [{ text: "🔄 Refresh", callback_data: "codex-output" }],
+      [{ text: "▶️ Stream output", callback_data: "codex-stream" }],
+      [{ text: "⬅️ Session", callback_data: "codex-detail" }],
+    ],
+  });
+}
+
+function renderCodexOutput(sessionId, { streaming = false } = {}) {
+  const session = codexBridge.sessionById(sessionId);
+  const output = codexBridge.latestOutput(sessionId);
+  const mode = streaming ? "LIVE" : "LATEST";
+  const status = streaming ? "Live view · updates this message" : "Snapshot · refresh on request";
+  return [
+    `🖥 <b>CODEX  /  ${mode} OUTPUT</b>`,
+    `Name - "<b>${escapeHtml(codexSessionName(session))}</b>"`,
+    `<code>● ${escapeHtml(sessionId.slice(0, 8))}</code>  ·  <i>${status}</i>`,
+    "",
+    "<code>╭─ assistant ───────────────</code>",
+    renderCodexBody(output?.text),
+    "<code>╰───────────────────────────</code>",
+  ].join("\n");
+}
+
+function stopCodexOutputStream(chatId) {
+  const previous = codexOutputStreams.get(String(chatId));
+  codexOutputStreams.delete(String(chatId));
+  return previous || null;
+}
+
+function codexStreamKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "⏹ Stop stream", callback_data: "codex-stream-off" }],
+      [{ text: "⬅️ Session", callback_data: "codex-detail" }],
+    ],
+  };
+}
+
+async function startCodexOutputStream(chatId, messageId) {
+  const sessionId = codexBridge.watchedSession(chatId);
+  if (!sessionId || !codexBridge.sessionById(sessionId)) return showCodexSessions(chatId, messageId);
+  const previous = codexOutputStreams.get(String(chatId));
+  const targetMessageId = previous?.sessionId === sessionId ? previous.messageId : messageId;
+  const text = renderCodexOutput(sessionId, { streaming: true });
+  const replyMarkup = codexStreamKeyboard();
+  let streamMessageId = targetMessageId;
+  if (targetMessageId) {
+    try {
+      await telegram("editMessageText", {
+        chat_id: chatId,
+        message_id: targetMessageId,
+        text,
+        parse_mode: "HTML",
+        disable_web_page_preview: true,
+        reply_markup: replyMarkup,
+      });
+    } catch (error) {
+      if (!String(error.message).includes("message is not modified")) {
+        const sent = await send(chatId, text, replyMarkup);
+        streamMessageId = sent?.message_id;
+        if (streamMessageId && previous?.messageId) {
+          try {
+            await telegram("deleteMessage", { chat_id: chatId, message_id: previous.messageId });
+          } catch {}
+        }
+      }
+    }
+  } else {
+    const sent = await send(chatId, text, replyMarkup);
+    streamMessageId = sent?.message_id;
+  }
+  if (streamMessageId) {
+    codexOutputStreams.set(String(chatId), { sessionId, messageId: streamMessageId, lastText: text });
+  }
+}
+
+async function refreshCodexOutputStreams() {
+  if (refreshingCodexStreams || !codexOutputStreams.size) return;
+  refreshingCodexStreams = true;
+  try {
+    for (const [chatId, stream] of codexOutputStreams) {
+      if (codexBridge.watchedSession(chatId) !== stream.sessionId || !codexBridge.sessionById(stream.sessionId)) {
+        codexOutputStreams.delete(chatId);
+        continue;
+      }
+      try {
+        if (!await isAuthenticated(chatId)) {
+          codexOutputStreams.delete(chatId);
+          continue;
+        }
+      } catch {
+        continue;
+      }
+      if (codexOutputStreams.get(chatId) !== stream) continue;
+      const text = renderCodexOutput(stream.sessionId, { streaming: true });
+      if (text === stream.lastText) continue;
+      try {
+        await telegram("editMessageText", {
+          chat_id: chatId,
+          message_id: stream.messageId,
+          text,
+          parse_mode: "HTML",
+          disable_web_page_preview: true,
+          reply_markup: codexStreamKeyboard(),
+        });
+        stream.lastText = text;
+      } catch (error) {
+        if (String(error.message).includes("message is not modified")) {
+          stream.lastText = text;
+        } else if (/message to edit not found|message can't be edited/i.test(String(error.message))) {
+          codexOutputStreams.delete(chatId);
+        } else {
+          console.error(`[Codex Telegram stream] ${error.message}`);
+        }
+      }
+    }
+  } finally {
+    refreshingCodexStreams = false;
+  }
 }
 
 async function showProviders(chatId, messageId) {
@@ -1041,6 +1298,8 @@ async function handleMessage(message) {
     return;
   }
   if (command === "/logout") {
+    stopCodexOutputStream(chatId);
+    codexBridge.unwatch(chatId);
     sessionStore.revoke(chatId);
     pendingLogins.delete(String(chatId));
     await clearPendingAction(chatId, { deletePrompt: true });
@@ -1052,7 +1311,7 @@ async function handleMessage(message) {
   try {
     const action = pendingActions.get(actionKey(chatId));
     if (action && text && !text.startsWith("/")) return await handlePendingAction(message, action);
-    if (["/start", "/menu", "/help", "/providers", "/combos", "/quota", "/usage"].includes(command)) {
+    if (["/start", "/menu", "/help", "/providers", "/combos", "/quota", "/usage", "/codex"].includes(command)) {
       await clearPendingAction(chatId, { deletePrompt: true });
     }
     if (["/start", "/menu", "/help"].includes(command)) return await showMenu(chatId);
@@ -1060,6 +1319,25 @@ async function handleMessage(message) {
     if (command === "/combos") return await showCombos(chatId);
     if (command === "/quota") return await showQuotaList(chatId);
     if (command === "/usage") return await showUsage(chatId, null, text.split(/\s+/)[1] || "7d");
+    if (command === "/codex") {
+      const [, subcommand, sessionId] = text.split(/\s+/);
+      if (subcommand === "stream" && sessionId !== "off") return await startCodexOutputStream(chatId, null);
+      const previousStream = stopCodexOutputStream(chatId);
+      if (subcommand === "stream" && sessionId === "off") {
+        return await showCodexSession(chatId, previousStream?.messageId);
+      }
+      if (subcommand === "open" && sessionId) {
+        if (!codexBridge.watch(chatId, sessionId)) return await send(chatId, "APIRouter Codex session not found. Send /codex to refresh the list.");
+        return await showCodexSession(chatId);
+      }
+      if (subcommand === "off") {
+        codexBridge.unwatch(chatId);
+        return await showCodexSessions(chatId);
+      }
+      if (subcommand === "output" || subcommand === "last") return await showCodexOutput(chatId);
+      if (subcommand === "recent") return await showCodexSession(chatId);
+      return await showCodexSessions(chatId);
+    }
     await showMenu(chatId);
   } catch (error) {
     console.error(`[Telegram message] ${error.method || "ACTION"} ${error.path || command || "input"}: ${error.message}`);
@@ -1094,6 +1372,25 @@ async function handleCallback(query) {
 
   await telegram("answerCallbackQuery", { callback_query_id: query.id });
   try {
+    if (await codexBridge.handleCallback(query)) return;
+    if (query.data === "codex-stream") return await startCodexOutputStream(chatId, messageId);
+    if (query.data === "codex-stream-off") {
+      stopCodexOutputStream(chatId);
+      return await showCodexSession(chatId, messageId);
+    }
+    if (query.data?.startsWith("codex-")) stopCodexOutputStream(chatId);
+    if (query.data === "codex-status") return await showCodexSessions(chatId, messageId);
+    if (query.data?.startsWith("codex-page:")) return await showCodexSessions(chatId, messageId, query.data.slice(11));
+    if (query.data?.startsWith("codex-open:")) {
+      if (!codexBridge.watch(chatId, query.data.slice(11))) return await showCodexSessions(chatId, messageId);
+      return await showCodexSession(chatId, messageId);
+    }
+    if (query.data === "codex-detail" || query.data === "codex-recent") return await showCodexSession(chatId, messageId);
+    if (query.data === "codex-output" || query.data === "codex-last") return await showCodexOutput(chatId, messageId);
+    if (query.data === "codex-off") {
+      codexBridge.unwatch(chatId);
+      return await showCodexSessions(chatId, messageId);
+    }
     if (query.data === "noop") return;
     if (query.data === "action-cancel") {
       await clearPendingAction(chatId, { deletePrompt: false });
@@ -1332,6 +1629,8 @@ async function poll() {
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, () => {
     stopping = true;
+    codexBridge.stop();
+    if (codexStreamTimer) clearInterval(codexStreamTimer);
     console.log("Stopping Telegram bot...");
   });
 }
@@ -1343,6 +1642,7 @@ await telegram("setMyCommands", {
     { command: "combos", description: "List combos" },
     { command: "usage", description: "Show usage statistics" },
     { command: "quota", description: "Track quota" },
+    { command: "codex", description: "Choose an APIRouter Codex session" },
     { command: "login", description: "Sign in with the Web UI password" },
     { command: "logout", description: "Clear the Telegram sign-in session" },
     { command: "cancel", description: "Cancel password entry" },
@@ -1354,4 +1654,8 @@ console.log(`APIRouter Telegram bot started for ${apirouterBaseUrl}`);
 console.log(`Telegram sessions: ${sessionStore.path}`);
 console.log(`Telegram session idle TTL: ${sessionTtlDays} day(s)`);
 if (!allowedChatIds.size) console.warn("No TELEGRAM_ALLOWED_CHAT_IDS configured. Any private chat with the Web UI password can authenticate.");
+codexBridge.start();
+codexStreamTimer = setInterval(() => { void refreshCodexOutputStreams(); }, CODEX_OUTPUT_STREAM_POLL_MS);
 await poll();
+if (codexStreamTimer) clearInterval(codexStreamTimer);
+codexBridge.stop();

@@ -63,6 +63,8 @@ APIRouter includes an optional Telegram bot for providers, combos, usage, and qu
 
 Configure `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_CHAT_IDS` in `.env.local`. See `docs/telegram-bot.md` for setup and commands.
 
+To choose an active APIRouter Codex CLI session to follow across folders, receive approval requests, and fetch output on demand in Telegram, see `docs/codex-telegram-bridge.md`.
+
 ## Codex APIRouter status
 
 Codex's built-in `/status` describes the Codex session and cannot be replaced by a custom provider. APIRouter provides a separate read-only command:

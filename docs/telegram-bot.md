@@ -11,6 +11,8 @@ The Telegram bot provides a lightweight management interface for APIRouter:
 
 The bot uses long polling, runs on the same machine as APIRouter, and requires no webhook or additional package.
 
+The bot can also relay approval requests and tool failures from an independent Codex CLI session, with assistant output available on request. See [Codex CLI ↔ Telegram](codex-telegram-bridge.md).
+
 ## 1. Create a Bot
 
 Create a bot with `@BotFather`, copy its token, and add it to `.env.local`:
@@ -79,6 +81,10 @@ Without `TELEGRAM_ALLOWED_CHAT_IDS`, any private-chat user who knows the correct
 - `/logout` — delete the saved Telegram session
 - `/cancel` — cancel password entry or a pending management action
 - `/id` — show the Telegram chat ID
+- `/codex` — list active Codex CLI sessions using APIRouter by name and folder across projects (🔐 marks a waiting approval); choose one to follow
+- `/codex open SESSION_ID` — follow that session and receive its new events in this chat
+- `/codex output` — show the followed session's latest assistant output; `/codex off` stops following
+- `/codex stream` — update one Telegram message as new output appears; `/codex stream off` stops it
 
 ## Security
 

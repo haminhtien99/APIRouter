@@ -133,7 +133,16 @@ function mergeServerArtifacts(buildDistDir, cliAppDir) {
 function copyTelegramBotRuntime(appDir, cliAppDir) {
   const destinationDir = path.join(cliAppDir, "scripts");
   fs.mkdirSync(destinationDir, { recursive: true });
-  for (const fileName of ["telegram-bot.mjs", "telegram-bot-lib.mjs"]) {
+  for (const fileName of [
+    "telegram-bot.mjs",
+    "telegram-bot-lib.mjs",
+    "codex-telegram-bot.mjs",
+    "codex-telegram-bridge-lib.mjs",
+    "codex-telegram-sessions.mjs",
+    "codex-telegram-hook.mjs",
+    "codex-telegram-smoke.mjs",
+    "install-codex-telegram-hooks.mjs",
+  ]) {
     const source = path.join(appDir, "scripts", fileName);
     if (!fs.existsSync(source)) throw new Error(`Required Telegram bot runtime is missing: ${source}`);
     fs.copyFileSync(source, path.join(destinationDir, fileName));
@@ -279,6 +288,11 @@ function buildCliPackage() {
   // the bundle's node_modules or every importer throws MODULE_NOT_FOUND at runtime. Output
   // tracing normally copies it; this is the same belt-and-braces guard used for sql.js.
   ensureModuleInBundle("open");
+  // The Telegram bot runs as a separate Node process and formats Codex output with marked.
+  ensureModuleInBundle("marked");
+  if (!fs.existsSync(path.join(cliAppDir, "node_modules", "marked", "package.json"))) {
+    throw new Error("Required marked runtime is missing from the CLI bundle");
+  }
   const betterDir = path.join(cliAppDir, "node_modules", "better-sqlite3");
   if (fs.existsSync(betterDir)) {
     fs.rmSync(betterDir, { recursive: true, force: true });

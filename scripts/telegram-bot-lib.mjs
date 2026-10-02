@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import machineIdPackage from "node-machine-id";
+import { marked } from "marked";
 
 const { machineIdSync } = machineIdPackage;
 
@@ -14,6 +15,97 @@ export function escapeHtml(value) {
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
+}
+
+function escapeCodexTail(value, limit) {
+  const chars = [...String(value ?? "")];
+  const parts = [];
+  let length = 0;
+  for (let index = chars.length - 1; index >= 0; index -= 1) {
+    const escaped = escapeHtml(chars[index]);
+    if (length + escaped.length > limit) return `…${parts.reverse().join("")}`;
+    parts.push(escaped);
+    length += escaped.length;
+  }
+  return parts.reverse().join("");
+}
+
+function renderCodexInline(tokens = []) {
+  return tokens.map((token) => {
+    switch (token.type) {
+      case "strong": return `<b>${renderCodexInline(token.tokens)}</b>`;
+      case "em": return `<i>${renderCodexInline(token.tokens)}</i>`;
+      case "del": return `<s>${renderCodexInline(token.tokens)}</s>`;
+      case "codespan": return `<code>${escapeHtml(token.text)}</code>`;
+      case "br": return "\n";
+      case "link": {
+        const label = renderCodexInline(token.tokens);
+        return token.href && token.href !== token.text
+          ? `${label} → <code>${escapeHtml(token.href)}</code>`
+          : label;
+      }
+      case "image":
+        return `${escapeHtml(token.text || "Image")} → <code>${escapeHtml(token.href || "")}</code>`;
+      case "text":
+      case "paragraph":
+        return token.tokens ? renderCodexInline(token.tokens) : escapeHtml(token.text);
+      default: return escapeHtml(token.text ?? token.raw ?? "");
+    }
+  }).join("");
+}
+
+function renderCodexBlock(token) {
+  switch (token.type) {
+    case "heading": return `▸ <b>${renderCodexInline(token.tokens)}</b>`;
+    case "paragraph":
+    case "text": return renderCodexInline(token.tokens || [token]);
+    case "code": return `<pre>${escapeHtml(token.text)}</pre>`;
+    case "list":
+      return token.items.map((item, index) => {
+        const marker = token.ordered ? `${Number(token.start || 1) + index}.` : "•";
+        return `${marker} ${renderCodexInline(item.tokens)}`;
+      }).join("\n");
+    case "blockquote": return `│ <i>${renderCodexInline(token.tokens)}</i>`;
+    case "table":
+      return `<pre>${escapeHtml([
+        token.header.map((cell) => cell.text).join("  |  "),
+        ...token.rows.map((row) => row.map((cell) => cell.text).join("  |  ")),
+      ].join("\n"))}</pre>`;
+    case "hr": return "━━━━━━━━━━━━";
+    case "space": return "";
+    default: return escapeHtml(token.text ?? token.raw ?? "");
+  }
+}
+
+export function renderCodexBody(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return "<i>No assistant output found yet.</i>";
+  const chars = [...text];
+  const clipped = chars.length > 5000;
+  const tail = clipped ? chars.slice(-5000).join("") : text;
+  const excerpt = clipped ? tail.replace(/^[^\n]*\n/u, "") || tail : tail;
+  let tokens;
+  try {
+    tokens = marked.lexer(excerpt, { gfm: true });
+  } catch {
+    return `<pre>${escapeCodexTail(excerpt, 3000)}</pre>`;
+  }
+  const blocks = tokens.map((token) => {
+    const rendered = renderCodexBlock(token);
+    return rendered.length <= 2900
+      ? rendered
+      : `<pre>${escapeCodexTail(token.text ?? token.raw ?? "", 2800)}</pre>`;
+  }).filter(Boolean);
+  const selected = [];
+  let length = 0;
+  for (let index = blocks.length - 1; index >= 0; index -= 1) {
+    const block = blocks[index];
+    if (length + block.length + 2 > 3100) break;
+    selected.unshift(block);
+    length += block.length + 2;
+  }
+  const omitted = clipped || selected.length < blocks.length;
+  return `${omitted ? "<i>… earlier output hidden</i>\n\n" : ""}${selected.join("\n\n")}`;
 }
 
 export function loadEnvFiles(files = [".env.local", ".env"]) {
@@ -117,6 +209,9 @@ export function createTelegramSessionStore({
       return !!get(chatId);
     },
     get,
+    list() {
+      return Object.values(state.chats);
+    },
     grant(chat = {}) {
       const chatId = String(chat.chatId);
       const timestamp = now().toISOString();
@@ -432,6 +527,7 @@ export function mainKeyboard() {
         { text: "📊 Usage", callback_data: "usage:7d" },
         { text: "⏱ Quota", callback_data: "quota" },
       ],
+      [{ text: "🤖 Codex", callback_data: "codex-status" }],
       [{ text: "🔄 Refresh", callback_data: "menu" }],
     ],
   };

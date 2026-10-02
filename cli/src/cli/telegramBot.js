@@ -44,9 +44,12 @@ function createTelegramBotController({
   }
 
   function resolveScript() {
+    const sourceScript = path.join(projectDir, "scripts", "telegram-bot.mjs");
+    const sourceBridge = path.join(projectDir, "scripts", "codex-telegram-bot.mjs");
     const candidates = [
+      ...(fs.existsSync(sourceBridge) ? [sourceScript] : []),
       path.join(appDir, "scripts", "telegram-bot.mjs"),
-      path.join(projectDir, "scripts", "telegram-bot.mjs"),
+      sourceScript,
     ];
     return candidates.find((candidate) => fs.existsSync(candidate)) || candidates[0];
   }

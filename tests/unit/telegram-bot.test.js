@@ -12,6 +12,7 @@ import {
   formatUsage,
   LoginAttemptLimiter,
   parseAllowedChatIds,
+  renderCodexBody,
   splitMessage,
 } from "../../scripts/telegram-bot-lib.mjs";
 
@@ -22,6 +23,21 @@ test("parseAllowedChatIds normalizes comma-separated IDs", () => {
 test("provider and combo output escapes Telegram HTML", () => {
   assert.match(formatProviders([{ provider: "openai", name: "A < B", isActive: true }]), /A &lt; B/);
   assert.match(formatCombos([{ name: "fast & cheap", models: ["a<b"] }]), /fast &amp; cheap/);
+});
+
+test("Codex output highlights Markdown and escapes transcript HTML", () => {
+  const output = renderCodexBody("# Summary\n\n**Done** with `a<b`.\n\n```sh\nprintf '<key>'\n```\n\n<a>raw</a>");
+  assert.match(output, /▸ <b>Summary<\/b>/);
+  assert.match(output, /<b>Done<\/b> with <code>a&lt;b<\/code>/);
+  assert.match(output, /<pre>printf '&lt;key&gt;'<\/pre>/);
+  assert.match(output, /&lt;a&gt;raw&lt;\/a&gt;/);
+});
+
+test("Codex output keeps the end of long replies within a Telegram message", () => {
+  const output = renderCodexBody(`${"older text\n\n".repeat(500)}Final answer.`);
+  assert.match(output, /earlier output hidden/);
+  assert.match(output, /Final answer\./);
+  assert.ok(output.length < 3300);
 });
 
 test("usage output includes totals and top providers", () => {
