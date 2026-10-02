@@ -39,6 +39,44 @@ const CODEX_HOSTED_TOOL_TYPES = new Set([
 // Responses-native freeform tools carry a name plus format payload and must pass through intact.
 const CODEX_PASSTHROUGH_TOOL_TYPES = new Set(["custom"]);
 
+function latestUserText(input) {
+  if (!Array.isArray(input)) return "";
+  for (let i = input.length - 1; i >= 0; i--) {
+    const item = input[i];
+    if (item?.role !== "user") continue;
+    if (typeof item.content === "string") return item.content;
+    if (Array.isArray(item.content)) {
+      return item.content
+        .filter((part) => part?.type === "input_text" || part?.type === "text")
+        .map((part) => part.text || "")
+        .join(" ");
+    }
+  }
+  return "";
+}
+
+function hasExplicitGoalTokenBudget(input) {
+  const text = latestUserText(input);
+  return /\b(?:token[_ -]*(?:budget|limit)|budget(?:\s+of)?|limit(?:\s+of)?)\s*(?:to\s*)?[:=]?\s*\d[\d,_]*(?:k|m)?\b|\b\d[\d,_]*(?:k|m)?\s*tokens?\b/i.test(text);
+}
+
+function omitUnrequestedGoalBudget(tool) {
+  const name = tool?.name || tool?.function?.name;
+  if (name !== "create_goal" && !name?.endsWith?.(".create_goal")) return;
+  const owner = tool.parameters ? tool : tool.function;
+  const parameters = owner?.parameters;
+  if (!parameters?.properties?.token_budget) return;
+  const properties = { ...parameters.properties };
+  delete properties.token_budget;
+  owner.parameters = {
+    ...parameters,
+    properties,
+    ...(Array.isArray(parameters.required)
+      ? { required: parameters.required.filter((key) => key !== "token_budget") }
+      : {}),
+  };
+}
+
 // Allowlist of fields accepted by Codex Responses API — anything else is stripped
 const RESPONSES_API_ALLOWLIST = new Set([
   "model", "input", "instructions", "tools", "tool_choice", "stream", "store",
@@ -72,6 +110,7 @@ function stripStoredItemReferences(body) {
 // Flatten Chat-Completions tool shape into Responses flat format + filter unsupported tools
 function normalizeCodexTools(body) {
   if (!Array.isArray(body.tools)) return;
+  const omitGoalBudget = !hasExplicitGoalTokenBudget(body.input);
   const validNames = new Set();
   // Codex's schema validator has no Unicode property escapes; a `pattern`
   // carrying `\p{...}` 400s the whole request on every account (#3922).
@@ -84,6 +123,7 @@ function normalizeCodexTools(body) {
         for (const st of tool.tools) {
           const n = typeof st?.name === "string" ? st.name.trim().slice(0, 128) : "";
           if (n) validNames.add(n);
+          if (omitGoalBudget) omitUnrequestedGoalBudget(st);
           if (st?.parameters && typeof st.parameters === "object") {
             st.parameters = stripCodexUnsupportedPatterns(st.parameters, patternStats);
           }
@@ -97,6 +137,7 @@ function normalizeCodexTools(body) {
       return CODEX_HOSTED_TOOL_TYPES.has(type);
     }
     const fn = tool.function && typeof tool.function === "object" && !Array.isArray(tool.function) ? tool.function : null;
+    if (omitGoalBudget) omitUnrequestedGoalBudget(tool);
     const rawName = typeof tool.name === "string" ? tool.name : (typeof fn?.name === "string" ? fn.name : "");
     const name = rawName.trim();
     if (!name) return false;

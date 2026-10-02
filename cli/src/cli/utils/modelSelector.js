@@ -1,5 +1,5 @@
 const api = require("../api/client");
-const { prompt } = require("./input");
+const { prompt, selectMenu } = require("./input");
 const { clearScreen } = require("./display");
 
 // Provider alias order: OAuth first, then API Key (matches ModelSelectModal)
@@ -54,16 +54,91 @@ async function getAvailableModelsGrouped() {
   return { combos, groups };
 }
 
+async function selectModelByProvider(title, currentValue, categories) {
+  const providerPageSize = 12;
+  const modelPageSize = 12;
+  let providerPage = 0;
+
+  while (true) {
+    const providerPages = Math.ceil(categories.length / providerPageSize);
+    const visibleProviders = categories.slice(
+      providerPage * providerPageSize,
+      (providerPage + 1) * providerPageSize,
+    );
+    const providerActions = [
+      { type: "cancel", label: "← Back" },
+      ...visibleProviders.map((provider) => ({
+        type: "provider",
+        provider,
+        label: `${provider.name} (${provider.models.length} models)`,
+      })),
+    ];
+    if (providerPage > 0) providerActions.push({ type: "previous", label: "← Previous providers" });
+    if (providerPage + 1 < providerPages) providerActions.push({ type: "next", label: "Next providers →" });
+
+    const providerChoice = await selectMenu(
+      `${title} · Choose provider`,
+      providerActions,
+      1,
+      `Page ${providerPage + 1}/${providerPages}`,
+      currentValue ? `Selected: ${currentValue}` : "",
+    );
+    if (providerChoice < 0 || providerActions[providerChoice]?.type === "cancel") return null;
+    const providerAction = providerActions[providerChoice];
+    if (providerAction.type === "previous") { providerPage--; continue; }
+    if (providerAction.type === "next") { providerPage++; continue; }
+
+    const provider = providerAction.provider;
+    let modelPage = 0;
+    let query = "";
+    while (true) {
+      const matchedModels = provider.models.filter((model) =>
+        model.toLowerCase().includes(query.toLowerCase())
+      );
+      const modelPages = Math.max(1, Math.ceil(matchedModels.length / modelPageSize));
+      modelPage = Math.min(modelPage, modelPages - 1);
+      const visibleModels = matchedModels.slice(
+        modelPage * modelPageSize,
+        (modelPage + 1) * modelPageSize,
+      );
+      const modelActions = [
+        { type: "back", label: "← Providers" },
+        ...visibleModels.map((model) => ({ type: "model", model, label: model })),
+      ];
+      if (modelPage > 0) modelActions.push({ type: "previous", label: "← Previous models" });
+      if (modelPage + 1 < modelPages) modelActions.push({ type: "next", label: "Next models →" });
+      modelActions.push({ type: "search", label: "🔍 Search models in this provider" });
+
+      const modelChoice = await selectMenu(
+        `${title} · ${provider.name}`,
+        modelActions,
+        visibleModels.length ? 1 : 0,
+        `${matchedModels.length} models · Page ${modelPage + 1}/${modelPages}`,
+        query ? `Search: ${query}` : (currentValue ? `Selected: ${currentValue}` : ""),
+      );
+      if (modelChoice < 0 || modelActions[modelChoice]?.type === "back") break;
+      const modelAction = modelActions[modelChoice];
+      if (modelAction.type === "model") return modelAction.model;
+      if (modelAction.type === "previous") modelPage--;
+      if (modelAction.type === "next") modelPage++;
+      if (modelAction.type === "search") {
+        query = (await prompt("Search models (blank to show all): ")).trim();
+        modelPage = 0;
+      }
+    }
+  }
+}
+
 /**
  * Display model list and prompt for selection with provider grouping & search
  * @param {string} title - Title to display
  * @param {string} currentValue - Current selected value (optional)
- * @param {Object} options - { excludeCombos?: boolean }
+ * @param {Object} options - { excludeCombos?: boolean, providerFirst?: boolean, catalog?: Object }
  * @returns {Promise<string|null>} Selected model ID or null if cancelled
  */
 async function selectModelFromList(title, currentValue = "", options = {}) {
-  const { excludeCombos = false } = options;
-  const { combos: rawCombos, groups } = await getAvailableModelsGrouped();
+  const { excludeCombos = false, providerFirst = false, catalog } = options;
+  const { combos: rawCombos, groups } = catalog || await getAvailableModelsGrouped();
   const combos = excludeCombos ? [] : rawCombos;
 
   const totalModels = combos.length + Object.values(groups).flat().length;
@@ -101,6 +176,8 @@ async function selectModelFromList(title, currentValue = "", options = {}) {
       models: groups[provider]
     });
   });
+
+  if (providerFirst) return selectModelByProvider(title, currentValue, categories);
 
   let filterQuery = null;
 
@@ -232,6 +309,9 @@ async function selectModelFromList(title, currentValue = "", options = {}) {
     // Selected a category
     if (!isNaN(num) && num > 0 && num <= categories.length) {
       const selectedCategory = categories[num - 1];
+      const pageSize = 20;
+      let page = 0;
+      let providerQuery = "";
 
       while (true) {
         clearScreen();
@@ -243,24 +323,38 @@ async function selectModelFromList(title, currentValue = "", options = {}) {
           console.log();
         }
 
-        selectedCategory.models.forEach((m, i) => {
+        const matchingModels = selectedCategory.models.filter((model) =>
+          model.toLowerCase().includes(providerQuery.toLowerCase())
+        );
+        const pageCount = Math.max(1, Math.ceil(matchingModels.length / pageSize));
+        page = Math.min(page, pageCount - 1);
+        const pageModels = matchingModels.slice(page * pageSize, (page + 1) * pageSize);
+        console.log(`Models: ${matchingModels.length} · Page ${page + 1}/${pageCount}`);
+        if (providerQuery) console.log(`Filter: ${providerQuery}`);
+        if (pageModels.length === 0) console.log("  No matching models found.");
+        pageModels.forEach((m, i) => {
           console.log(`  ${i + 1}. ${m}`);
         });
-        console.log("\n  0. ← Back\n");
+        console.log("\n  n. Next page  p. Previous page  s. Search this provider");
+        console.log("  0. ← Back to providers\n");
 
-        const modelChoice = await prompt("Enter number to select (0 to back): ");
-        const modelNum = parseInt(modelChoice, 10);
-        if (isNaN(modelNum) || modelNum === 0) {
-          break;
+        const modelChoice = (await prompt("Enter number, n/p/s, or 0: ")).trim().toLowerCase();
+        if (modelChoice === "0") break;
+        if (modelChoice === "n") { page = Math.min(page + 1, pageCount - 1); continue; }
+        if (modelChoice === "p") { page = Math.max(page - 1, 0); continue; }
+        if (modelChoice === "s") {
+          providerQuery = (await prompt("Search models (blank to show all): ")).trim();
+          page = 0;
+          continue;
         }
-        if (modelNum > 0 && modelNum <= selectedCategory.models.length) {
-          return selectedCategory.models[modelNum - 1];
-        }
+        if (!/^\d+$/.test(modelChoice)) continue;
+        const modelNum = Number(modelChoice);
+        if (modelNum > 0 && modelNum <= pageModels.length) return pageModels[modelNum - 1];
       }
       continue;
     }
 
-    // User typed text directly -> treat as search query
+    // User typed text directly -> treat as search query in the general picker.
     filterQuery = trimmed;
   }
 }

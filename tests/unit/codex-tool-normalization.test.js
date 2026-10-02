@@ -1,12 +1,13 @@
-import { describe, expect, it } from "vitest";
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 
 import { CodexExecutor } from "../../open-sse/executors/codex.js";
 
-function normalizeTools(tools) {
+function normalizeTools(tools, userText = "probe") {
   const executor = new CodexExecutor();
   const body = {
     model: "gpt-5.5",
-    input: [{ type: "message", role: "user", content: [{ type: "input_text", text: "probe" }] }],
+    input: [{ type: "message", role: "user", content: [{ type: "input_text", text: userText }] }],
     tools,
     stream: true,
   };
@@ -20,6 +21,45 @@ function normalizeTools(tools) {
 }
 
 describe("CodexExecutor tool normalization", () => {
+  it("omits an unrequested goal token budget from flat and namespace tools", () => {
+    const parameters = {
+      type: "object",
+      properties: {
+        objective: { type: "string" },
+        token_budget: { type: "integer", minimum: 1 },
+      },
+      required: ["objective", "token_budget"],
+    };
+    const tools = normalizeTools([
+      { type: "function", name: "functions.create_goal", parameters },
+      { type: "namespace", name: "functions", tools: [
+        { type: "function", name: "create_goal", parameters },
+      ] },
+    ], "/goal Finish the refactor");
+
+    for (const goal of [tools[0], tools[1].tools[0]]) {
+      assert.equal(goal.parameters.properties.token_budget, undefined);
+      assert.deepEqual(goal.parameters.required, ["objective"]);
+    }
+    assert.deepEqual(parameters.properties.token_budget, { type: "integer", minimum: 1 });
+  });
+
+  it("keeps goal token_budget when the user requests a token limit", () => {
+    const parameters = {
+      type: "object",
+      properties: {
+        objective: { type: "string" },
+        token_budget: { type: "integer", minimum: 1 },
+      },
+      required: ["objective"],
+    };
+    const tools = normalizeTools([
+      { type: "function", name: "create_goal", parameters },
+    ], "/goal Finish the refactor with a limit of 4000 tokens");
+
+    assert.deepEqual(tools[0].parameters.properties.token_budget, { type: "integer", minimum: 1 });
+  });
+
   it("preserves Responses text.format for structured outputs", () => {
     const executor = new CodexExecutor();
     const schema = {
@@ -50,7 +90,7 @@ describe("CodexExecutor tool normalization", () => {
       providerSpecificData: {},
     });
 
-    expect(body.text).toEqual({
+    assert.deepEqual(body.text, {
       format: {
         type: "json_schema",
         name: "codex_output_schema",
@@ -58,7 +98,7 @@ describe("CodexExecutor tool normalization", () => {
         schema,
       },
     });
-    expect(body.metadata).toBeUndefined();
+    assert.equal(body.metadata, undefined);
   });
 
   it("preserves Responses-native tool_search tools", () => {
@@ -91,7 +131,7 @@ describe("CodexExecutor tool normalization", () => {
       },
     ]);
 
-    expect(tools.map((tool) => `${tool.type}:${tool.name || ""}`)).toEqual([
+    assert.deepEqual(tools.map((tool) => `${tool.type}:${tool.name || ""}`), [
       "tool_search:",
       "namespace:codex_app",
       "function:plain_fn",
@@ -108,7 +148,7 @@ describe("CodexExecutor tool normalization", () => {
       { type: "computer", display_width: 1024, display_height: 768, environment: "browser" },
     ]);
 
-    expect(tools.map((tool) => tool.type)).toEqual([
+    assert.deepEqual(tools.map((tool) => tool.type), [
       "web_search",
       "image_generation",
       "mcp",
@@ -142,12 +182,12 @@ describe("CodexExecutor tool normalization", () => {
       parameters: sourceParameters,
     }]);
 
-    expect(tools[0].parameters.properties.artifact.properties.name.pattern).toBeUndefined();
-    expect(tools[0].parameters.properties.artifact.properties.slug.pattern).toBe(validPattern);
-    expect(tools[0].parameters.properties.pattern.pattern).toBe(validPattern);
-    expect(tools[0].parameters.allOf[0].properties.title.pattern).toBeUndefined();
+    assert.equal(tools[0].parameters.properties.artifact.properties.name.pattern, undefined);
+    assert.equal(tools[0].parameters.properties.artifact.properties.slug.pattern, validPattern);
+    assert.equal(tools[0].parameters.properties.pattern.pattern, validPattern);
+    assert.equal(tools[0].parameters.allOf[0].properties.title.pattern, undefined);
     // Copy-on-write: the caller's schema remains available for another provider.
-    expect(sourceParameters.properties.artifact.properties.name.pattern).toBe(unicodePattern);
+    assert.equal(sourceParameters.properties.artifact.properties.name.pattern, unicodePattern);
   });
 
   it("keeps escaped literal property text and schema identity when no strip is needed", () => {
@@ -160,8 +200,8 @@ describe("CodexExecutor tool normalization", () => {
     };
     const tools = normalizeTools([{ type: "function", name: "probe", parameters }]);
 
-    expect(tools[0].parameters).toBe(parameters);
-    expect(tools[0].parameters.properties.literal.pattern).toBe("^\\\\p{Cc}$");
+    assert.strictEqual(tools[0].parameters, parameters);
+    assert.equal(tools[0].parameters.properties.literal.pattern, "^\\\\p{Cc}$");
   });
 
   it("sanitizes nested namespace function schemas", () => {
@@ -178,7 +218,7 @@ describe("CodexExecutor tool normalization", () => {
       }],
     }]);
 
-    expect(tools[0].tools[0].parameters.properties.name.pattern).toBeUndefined();
+    assert.equal(tools[0].tools[0].parameters.properties.name.pattern, undefined);
   });
 
   it("preserves custom freeform tools with format payloads", () => {
@@ -191,7 +231,7 @@ describe("CodexExecutor tool normalization", () => {
       },
     ]);
 
-    expect(tools).toEqual([
+    assert.deepEqual(tools, [
       {
         type: "custom",
         name: "apply_patch",

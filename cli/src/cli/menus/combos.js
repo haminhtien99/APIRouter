@@ -1,5 +1,5 @@
 const api = require("../api/client");
-const { prompt, select, confirm, pause } = require("../utils/input");
+const { prompt, select, selectMenu, confirm, pause } = require("../utils/input");
 const { clearScreen, showStatus, showHeader } = require("../utils/display");
 const { formatDate } = require("../utils/format");
 const { selectModelFromList } = require("../utils/modelSelector");
@@ -75,7 +75,7 @@ async function chooseFusionJudge(currentJudge = "") {
   ]);
   if (choice === 0) return "";
   if (choice === 1 && currentJudge) return currentJudge;
-  return (await selectModelFromList("Select Fusion Judge", currentJudge || "Auto — first combo model")) || "";
+  return (await selectModelFromList("Select Fusion Judge", currentJudge || "Auto — first combo model", { excludeCombos: true, providerFirst: true })) || "";
 }
 
 async function handleChangeStrategy(combo, currentStrategy = {}) {
@@ -163,7 +163,7 @@ async function handleEditSingleCombo(combo) {
   
   while (addMore) {
     const currentChain = models.length > 0 ? models.join(" → ") : "None";
-    const model = await selectModelFromList(`Add Model #${models.length + 1}`, `Chain: ${currentChain}`);
+    const model = await selectModelFromList(`Add Model #${models.length + 1}`, `Chain: ${currentChain}`, { excludeCombos: true, providerFirst: true });
     
     if (model) {
       models.push(model);
@@ -336,84 +336,91 @@ async function handleCreateCombo() {
     return;
   }
   
-  // Fetch available models
+  // Fetch routable models once so every selection uses the same provider catalog.
   showStatus("Loading available models...", "info");
-  const modelsResult = await api.getModels();
-  
+  const [modelsResult, providersResult] = await Promise.all([
+    api.getAvailableModels(),
+    api.getProviders(),
+  ]);
   if (!modelsResult.success) {
     showStatus(`Failed to load models: ${modelsResult.error}`, "error");
     await pause();
     return;
   }
-  
-  const availableModels = modelsResult.data.models || [];
-  
-  if (availableModels.length === 0) {
+  if (!providersResult.success) {
+    showStatus(`Failed to load providers: ${providersResult.error}`, "error");
+    await pause();
+    return;
+  }
+  if (!(providersResult.data?.connections || []).some((connection) => connection.isActive !== false)) {
+    showStatus("No active providers available. Please add a provider first.", "warning");
+    await pause();
+    return;
+  }
+
+  const catalog = { combos: [], groups: {} };
+  for (const model of modelsResult.data?.data || []) {
+    if (!model?.id || !model?.owned_by || model.owned_by === "combo") continue;
+    (catalog.groups[model.owned_by] ||= []).push(model.id);
+  }
+  if (Object.keys(catalog.groups).length === 0) {
     showStatus("No models available. Please add providers first.", "warning");
     await pause();
     return;
   }
   
-  // Select models for chain
+  // Start with the provider picker, then keep the draft in a menu with an
+  // explicit save action. Backing out of the picker only returns to the draft.
   const selectedModels = [];
-  
-  console.log();
-  showStatus("Select models for the chain (minimum 2)", "info");
+  let strategy = "fallback";
+  let judgeModel = "";
+  let pickModel = true;
   
   while (true) {
-    clearScreen();
-    console.log(`Creating combo: ${name}`);
-    console.log(`Selected models (${selectedModels.length}):`);
-    
-    if (selectedModels.length > 0) {
-      selectedModels.forEach((m, i) => {
-        console.log(`  ${i + 1}. ${m.provider}/${m.model}`);
+    if (pickModel) {
+      const model = await selectModelFromList(`Add Model #${selectedModels.length + 1}`, selectedModels.join(" → "), {
+        excludeCombos: true,
+        providerFirst: true,
+        catalog,
       });
-    } else {
-      console.log("  (none)");
+      if (model) selectedModels.push(model);
+      pickModel = false;
     }
-    
-    console.log();
-    console.log("Available models:");
-    availableModels.forEach((m, i) => {
-      console.log(`  ${i + 1}. ${m.provider}/${m.model}`);
-    });
-    
-    console.log();
-    console.log("Actions:");
-    console.log("  - Enter number to add model");
-    console.log("  - Type 'done' to finish (min 2 models)");
-    console.log("  - Type 'cancel' to abort");
-    
-    const input = await prompt("\nAction: ");
-    
-    if (input.toLowerCase() === "cancel") {
-      showStatus("Cancelled", "warning");
-      await pause();
-      return;
-    }
-    
-    if (input.toLowerCase() === "done") {
-      if (selectedModels.length < 2) {
-        showStatus("Please select at least 2 models", "error");
-        await pause();
-        continue;
-      }
-      break;
-    }
-    
-    const num = parseInt(input, 10);
-    if (isNaN(num) || num < 1 || num > availableModels.length) {
-      showStatus("Invalid model number", "error");
-      await pause();
+
+    const actions = [
+      ...(selectedModels.length ? [{ type: "save", label: "💾 Save combo" }] : []),
+      { type: "add", label: "＋ Add model" },
+      { type: "strategy", label: `Strategy: ${strategyLabel(strategy)}` },
+      ...(selectedModels.length ? [{ type: "remove", label: "Remove last model" }] : []),
+      { type: "cancel", label: "Cancel combo creation" },
+    ];
+    const selected = await selectMenu(
+      `Create Combo · ${name}`,
+      actions,
+      0,
+      `${selectedModels.length} model${selectedModels.length === 1 ? "" : "s"} selected`,
+      selectedModels.length ? selectedModels.map((model, i) => `${i + 1}. ${model}`).join("\n") : "No models selected yet",
+    );
+    const action = actions[selected]?.type || "cancel";
+    if (action === "add") {
+      pickModel = true;
       continue;
     }
-    
-    selectedModels.push(availableModels[num - 1]);
+    if (action === "remove") {
+      selectedModels.pop();
+      continue;
+    }
+    if (action === "strategy") {
+      strategy = await chooseComboStrategy(strategy);
+      judgeModel = strategy === "fusion" ? await chooseFusionJudge(judgeModel) : "";
+      continue;
+    }
+    if (action === "cancel") {
+      if (!selectedModels.length || await confirm("Discard this combo draft?")) return;
+      continue;
+    }
+    if (action === "save") break;
   }
-
-  const strategy = await chooseComboStrategy("fallback");
-  const judgeModel = strategy === "fusion" ? await chooseFusionJudge("") : "";
   
   // Create combo
   showStatus("Creating combo...", "info");
@@ -496,7 +503,7 @@ async function editSingleCombo(combo) {
       
       console.log("\nType 'done' to finish (min 2 models) or 'cancel' to abort\n");
       
-      const model = await selectModelFromList("Add Model", "");
+      const model = await selectModelFromList("Add Model", "", { excludeCombos: true, providerFirst: true });
       
       if (model === null) {
         showStatus("Cancelled", "warning");
@@ -598,4 +605,4 @@ async function handleDeleteCombo(combos) {
   await pause();
 }
 
-module.exports = { buildUpdatedComboStrategies, showCombosMenu };
+module.exports = { buildUpdatedComboStrategies, showCombosMenu, handleCreateCombo };
