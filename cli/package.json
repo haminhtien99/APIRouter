@@ -1,6 +1,6 @@
 {
   "name": "apirouter",
-  "version": "0.5.82-dev.0",
+  "version": "0.5.82-dev.1",
   "description": "APIRouter CLI - local unified AI provider and account gateway",
   "bin": {
     "apirouter": "./cli.js"

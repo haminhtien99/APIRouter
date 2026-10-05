@@ -42,6 +42,8 @@ apirouter --version
 
 The update command fetches the branch tracked by that checkout, accepts only a fast-forward update, installs the locked dependencies, and rebuilds the CLI. It stops if the checkout has local changes or diverged from the remote branch. Application data in `~/.apirouter` stays on that computer. If the command was not linked, run `npm run update:check` and `npm run update:local` from the project directory instead.
 
+The Dashboard shows the available version and the `apirouter update` command when the tracked Git branch has newer commits. It checks on load and every five minutes. Exit APIRouter before running the command in a terminal; the Dashboard only displays the instructions.
+
 An existing installation made before this command was added needs one manual update from its project directory:
 
 ```bash

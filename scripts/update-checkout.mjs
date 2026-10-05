@@ -7,8 +7,9 @@ import path from "node:path";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const action = process.argv[2] || "check";
+const jsonOutput = action === "status";
 
-if (!new Set(["check", "apply"]).has(action)) {
+if (!new Set(["check", "apply", "status"]).has(action)) {
   console.error("Usage: apirouter update [--check]");
   process.exit(2);
 }
@@ -17,10 +18,23 @@ function output(command, args) {
   return execFileSync(command, args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
+function report(message) {
+  if (!jsonOutput) console.log(message);
+}
+
 function run(command, args) {
-  const result = spawnSync(command, args, { cwd: root, stdio: "inherit", shell: false });
+  const result = spawnSync(command, args, {
+    cwd: root,
+    stdio: jsonOutput ? ["ignore", "pipe", "pipe"] : "inherit",
+    shell: false,
+    timeout: jsonOutput ? 12000 : undefined,
+    env: jsonOutput ? { ...process.env, GIT_TERMINAL_PROMPT: "0" } : process.env,
+  });
   if (result.error) throw result.error;
-  if (result.status !== 0) throw new Error(`${command} ${args.join(" ")} exited with code ${result.status}`);
+  if (result.status !== 0) {
+    const detail = jsonOutput ? result.stderr?.toString().trim() : "";
+    throw new Error(detail || `${command} ${args.join(" ")} exited with code ${result.status}`);
+  }
 }
 
 function isAncestor(older, newer) {
@@ -41,19 +55,41 @@ try {
   const currentVersion = JSON.parse(readFileSync(path.join(root, "cli", "package.json"), "utf8")).version;
   const currentCommit = output("git", ["rev-parse", "--short", "HEAD"]);
 
-  console.log(`Current: v${currentVersion} (${currentCommit}, ${branch})`);
-  console.log(`Fetching ${remote}...`);
-  run("git", ["fetch", "--tags", remote]);
+  report(`Current: v${currentVersion} (${currentCommit}, ${branch})`);
+  report(`Fetching ${remote}...`);
+  run("git", jsonOutput ? ["fetch", "--quiet", "--no-tags", remote] : ["fetch", "--tags", remote]);
 
   const upstreamVersion = JSON.parse(output("git", ["show", `${upstream}:cli/package.json`])).version;
   const upstreamCommit = output("git", ["rev-parse", "--short", upstream]);
-  console.log(`Available: v${upstreamVersion} (${upstreamCommit}, ${upstream})`);
+  report(`Available: v${upstreamVersion} (${upstreamCommit}, ${upstream})`);
 
-  if (isAncestor(upstream, "HEAD")) {
+  const isCurrent = upstreamCommit === currentCommit;
+  const isAhead = !isCurrent && isAncestor(upstream, "HEAD");
+  const isBehind = !isCurrent && isAncestor("HEAD", upstream);
+  const hasLocalChanges = Boolean(output("git", ["status", "--porcelain", "--untracked-files=normal"]));
+
+  if (jsonOutput) {
+    const status = isCurrent ? "upToDate" : isAhead ? "ahead" : isBehind ? "updateAvailable" : "diverged";
+    console.log(JSON.stringify({
+      status,
+      currentVersion,
+      latestVersion: upstreamVersion,
+      currentCommit,
+      latestCommit: upstreamCommit,
+      branch,
+      upstream,
+      hasUpdate: isBehind,
+      canUpdate: isBehind && !hasLocalChanges,
+      hasLocalChanges,
+    }));
+    process.exit(0);
+  }
+
+  if (isCurrent || isAhead) {
     console.log(upstreamCommit === currentCommit ? "Already up to date." : "Local branch is ahead of its upstream; nothing to download.");
     process.exit(0);
   }
-  if (!isAncestor("HEAD", upstream)) {
+  if (!isBehind) {
     throw new Error("Local and remote branches diverged. Resolve the Git history before updating.");
   }
 
@@ -64,7 +100,7 @@ try {
     process.exit(0);
   }
 
-  if (output("git", ["status", "--porcelain", "--untracked-files=normal"])) {
+  if (hasLocalChanges) {
     throw new Error("Checkout has local changes. Commit or stash them before updating.");
   }
 
@@ -78,6 +114,7 @@ try {
   run(npm, ["run", "local:build"]);
   console.log(`Updated to v${upstreamVersion}. Start APIRouter again with: apirouter`);
 } catch (error) {
-  console.error(`Update failed: ${error.message}`);
+  if (jsonOutput) console.log(JSON.stringify({ status: "unavailable", error: error.message }));
+  else console.error(`Update failed: ${error.message}`);
   process.exit(1);
 }

@@ -1,6 +1,7 @@
-# Unreleased (0.5.82-dev.0)
+# Unreleased (0.5.82-dev.1)
 
 ## Features
+- **Updates**: show the available Git version and manual update command in the Dashboard when the tracked branch advances
 - **Updates**: name local builds with a shared version and provide a Git checkout update command for other machines
 - **Codex**: add GPT 6.1 Sol and its review route with current reasoning levels, capabilities, and pricing
 - **Codex**: add GPT 6.0 Sol and Luna, including review routes, current capabilities, and reasoning levels
