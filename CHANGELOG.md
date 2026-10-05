@@ -1,10 +1,14 @@
-# Unreleased
+# Unreleased (0.5.82-dev.0)
 
 ## Features
+- **Updates**: name local builds with a shared version and provide a Git checkout update command for other machines
+- **Codex**: add GPT 6.1 Sol and its review route with current reasoning levels, capabilities, and pricing
 - **Codex**: add GPT 6.0 Sol and Luna, including review routes, current capabilities, and reasoning levels
 - **Codex CLI**: store APIRouter in an isolated `apirouter` profile so plain `codex` continues to use the official provider
 
 ## Fixes
+- **Codex**: update the CLI identity to 0.160.0 so live model discovery includes models gated by the newer client version
+- **Codex**: align GPT 6 Astra cost estimates with published Standard token rates
 - **Codex**: use the current CLI version for live model discovery so models gated by `minimal_client_version` are not silently omitted
 - **Codex**: align GPT-6 Sol and Luna cost estimates with published Standard token rates
 - **Codex CLI**: preserve official login credentials when resetting APIRouter settings and make `status-api` read the APIRouter profile

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const { spawn, exec, execSync } = require("child_process");
+const { spawn, spawnSync, exec, execSync } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 const net = require("net");
@@ -80,6 +80,20 @@ if (args[0] === "xai" && args[1] === "video") {
 }
 
 const normalizedCommand = String(args[0] || "").toLowerCase().replaceAll("_", "-");
+if (normalizedCommand === "update") {
+  if (args.length > 2 || (args[1] && args[1] !== "--check")) {
+    console.error("Usage: apirouter update [--check]");
+    process.exit(2);
+  }
+  const updateScript = path.resolve(__dirname, "..", "scripts", "update-checkout.mjs");
+  if (!fs.existsSync(updateScript)) {
+    console.error("This command requires a Git checkout of APIRouter. Update packaged installs through their package manager.");
+    process.exit(1);
+  }
+  const result = spawnSync(process.execPath, [updateScript, args[1] === "--check" ? "check" : "apply"], { stdio: "inherit" });
+  if (result.error) console.error(`Update failed: ${result.error.message}`);
+  process.exit(result.status ?? 1);
+}
 if (normalizedCommand === "status-api" || (normalizedCommand === "status" && args[1] === "api")) {
   const { run } = require("./src/cli/commands/statusApi");
   const commandArgs = normalizedCommand === "status-api" ? args.slice(1) : args.slice(2);
@@ -162,6 +176,7 @@ Options:
   -v, --version       Show version
 
 Commands:
+  update [--check]    Check or install updates from the tracked Git branch
   status-api [options]  Show Codex/APIRouter model, combo, provider, and usage status
   status_API [options]  Alias for status-api
   status api [options]  Alias for status-api

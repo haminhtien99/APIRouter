@@ -2,7 +2,7 @@ import { withCodexReviewModels } from "../models/helpers.js";
 
 // Codex CLI version seen by OpenAI's backend — single source for the Version /
 // User-Agent identity headers. Bump when the installed codex CLI is upgraded.
-const CODEX_CLI_VERSION = "0.156.1";
+const CODEX_CLI_VERSION = "0.160.0";
 
 export default {
   id: "codex",
@@ -51,6 +51,8 @@ export default {
   },
   models: [
     { id: "gpt-6-astra", name: "GPT 6.0 Astra" },
+    { id: "gpt-6.1-sol", name: "GPT 6.1 Sol" },
+    { id: "gpt-6.1-sol-review", name: "GPT 6.1 Sol Review", upstreamModelId: "gpt-6.1-sol", quotaFamily: "review" },
     { id: "gpt-6-sol", name: "GPT 6.0 Sol" },
     { id: "gpt-6-sol-review", name: "GPT 6.0 Sol Review", upstreamModelId: "gpt-6-sol", quotaFamily: "review" },
     { id: "gpt-6-luna", name: "GPT 6.0 Luna" },

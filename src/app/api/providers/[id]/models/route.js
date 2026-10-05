@@ -154,7 +154,8 @@ const PROVIDER_MODELS_CONFIG = {
           "Content-Type": "application/json",
           "Accept": "application/json",
           "Authorization": `Bearer ${token}`,
-          "originator": "codex_cli_rs"
+          "originator": "codex_cli_rs",
+          "User-Agent": `codex_cli_rs/${CODEX_CLI_VERSION}`
         }
       }),
       parseFn: parseCodexModels,

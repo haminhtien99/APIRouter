@@ -1,6 +1,6 @@
 {
   "name": "apirouter-app",
-  "version": "0.1.0",
+  "version": "0.5.82-dev.0",
   "description": "APIRouter local AI account and provider gateway",
   "private": true,
   "bin": {
@@ -23,6 +23,8 @@
     "build:bun": "bun --bun next build --webpack",
     "start:bun": "bun ./.next/standalone/custom-server.js",
     "local:build": "npm --prefix cli run build",
+    "update:check": "node scripts/update-checkout.mjs check",
+    "update:local": "node scripts/update-checkout.mjs apply",
     "start:cli": "node cli/cli.js --host 127.0.0.1 --skip-update",
     "cli:pack": "npm --prefix cli run pack:cli",
     "cli:publish": "npm --prefix cli run publish:cli"

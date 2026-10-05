@@ -27,6 +27,8 @@ npm run local:build
 
 To make `apirouter` available from any directory, run `npm link` once from the project root. The command points to this checkout; after source changes, rebuild with `npm run local:build`, and relink only if you move the project.
 
+On another computer, clone the same Git repository and follow the build steps above. After new commits are pushed, stop the running gateway and use `apirouter update --check` to see the available version, then `apirouter update` to fast-forward, install dependencies, and rebuild. The command refuses a dirty or diverged checkout. See [README.md](README.md#update-another-computer) for release tags and the npm script equivalents.
+
 ## Run
 
 After linking, run from any directory:
