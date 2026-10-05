@@ -1,4 +1,4 @@
-# Unreleased (0.5.82-dev.1)
+# v0.5.82-dev.2 (2026-10-05)
 
 ## Features
 - **Updates**: show the available Git version and manual update command in the Dashboard when the tracked branch advances
@@ -8,6 +8,7 @@
 - **Codex CLI**: store APIRouter in an isolated `apirouter` profile so plain `codex` continues to use the official provider
 
 ## Fixes
+- **Dependencies**: update Next.js to 16.3.8 to address the `next/og` advisory and remove unused `http-proxy-middleware` from the runtime dependency tree
 - **Codex**: update the CLI identity to 0.160.0 so live model discovery includes models gated by the newer client version
 - **Codex**: align GPT 6 Astra cost estimates with published Standard token rates
 - **Codex**: use the current CLI version for live model discovery so models gated by `minimal_client_version` are not silently omitted
