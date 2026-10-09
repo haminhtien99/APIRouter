@@ -21,6 +21,8 @@ const antigravity = {
     return `${config.authorizeUrl}?${params.toString()}`;
   },
   exchangeToken: async (config, code, redirectUri) => {
+    const clientId = config.clientId?.trim() || process.env.ANTIGRAVITY_OAUTH_CLIENT_ID?.trim();
+    const clientSecret = config.clientSecret?.trim() || process.env.ANTIGRAVITY_OAUTH_CLIENT_SECRET?.trim();
     const response = await fetch(config.tokenUrl, {
       method: "POST",
       headers: {
@@ -29,8 +31,8 @@ const antigravity = {
       },
       body: new URLSearchParams({
         grant_type: "authorization_code",
-        client_id: config.clientId,
-        client_secret: config.clientSecret,
+        client_id: clientId,
+        client_secret: clientSecret,
         code: code,
         redirect_uri: redirectUri,
       }),

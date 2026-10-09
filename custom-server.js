@@ -1,8 +1,46 @@
 const http = require("http");
 const path = require("path");
 const fs = require("fs");
+const os = require("os");
 const crypto = require("crypto");
 const { pathToFileURL } = require("url");
+
+function loadEnvFile(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) return;
+    const content = fs.readFileSync(filePath, "utf8");
+    for (const rawLine of content.split("\n")) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith("#")) continue;
+      const eqIdx = line.indexOf("=");
+      if (eqIdx === -1) continue;
+      const key = line.slice(0, eqIdx).trim();
+      let val = line.slice(eqIdx + 1).trim();
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1);
+      }
+      if (key && !process.env[key]) {
+        process.env[key] = val;
+      }
+    }
+  } catch {}
+}
+
+const dataDir = process.env.DATA_DIR || (process.platform === "win32"
+  ? path.join(process.env.APPDATA || "", "apirouter")
+  : path.join(os.homedir(), ".apirouter"));
+
+const candidateDirs = [
+  process.cwd(),
+  __dirname,
+  path.resolve(__dirname, ".."),
+  path.resolve(__dirname, "../.."),
+  dataDir,
+];
+for (const dir of candidateDirs) {
+  loadEnvFile(path.join(dir, ".env.local"));
+  loadEnvFile(path.join(dir, ".env"));
+}
 
 const origCreate = http.createServer.bind(http);
 

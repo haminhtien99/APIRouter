@@ -22,6 +22,7 @@ function buildProviderEntry(r) {
     ...display,
     id: r.id,
     alias: r.uiAlias || r.alias,
+    ...(r.aliases ? { aliases: r.aliases } : {}),
     ...(r.hidden ? { hidden: true } : {}),
     ...mediaFields,
     ...(r.priority !== undefined ? { priority: r.priority } : {}),
@@ -109,10 +110,21 @@ export const AUTH_METHODS = {
 
 // Helper: Get provider by alias
 export function getProviderByAlias(alias) {
+  if (!alias) return null;
+  const normalized = String(alias).trim().toLowerCase();
   for (const provider of Object.values(AI_PROVIDERS)) {
-    if (provider.alias === alias || provider.id === alias) {
+    if (
+      provider.alias === alias ||
+      provider.id === alias ||
+      provider.alias?.toLowerCase() === normalized ||
+      provider.id?.toLowerCase() === normalized ||
+      (Array.isArray(provider.aliases) && provider.aliases.some((a) => a?.toLowerCase() === normalized))
+    ) {
       return provider;
     }
+  }
+  if (normalized === "agy" || normalized === "ag") {
+    return AI_PROVIDERS["antigravity"] || null;
   }
   return null;
 }
@@ -132,8 +144,11 @@ export function getProviderAlias(providerId) {
 // Alias to ID mapping (for quick lookup)
 export const ALIAS_TO_ID = Object.values(AI_PROVIDERS).reduce((acc, p) => {
   acc[p.alias] = p.id;
+  if (Array.isArray(p.aliases)) {
+    for (const a of p.aliases) acc[a] = p.id;
+  }
   return acc;
-}, {});
+}, { agy: "antigravity" });
 
 // ID to Alias mapping
 export const ID_TO_ALIAS = Object.values(AI_PROVIDERS).reduce((acc, p) => {

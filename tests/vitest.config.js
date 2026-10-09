@@ -1,10 +1,32 @@
-import { defineConfig } from "vitest/config";
 import { resolve } from "path";
 import { fileURLToPath } from "url";
+import fs from "fs";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
-export default defineConfig({
+// Load .env.local for tests
+try {
+  const envPath = resolve(__dirname, "../.env.local");
+  if (fs.existsSync(envPath)) {
+    const lines = fs.readFileSync(envPath, "utf8").split("\n");
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith("#")) continue;
+      const eqIdx = line.indexOf("=");
+      if (eqIdx === -1) continue;
+      const key = line.slice(0, eqIdx).trim();
+      let val = line.slice(eqIdx + 1).trim();
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1);
+      }
+      if (key && !process.env[key]) {
+        process.env[key] = val;
+      }
+    }
+  }
+} catch {}
+
+export default {
   test: {
     environment: "node",
     globals: true,
@@ -26,4 +48,5 @@ export default defineConfig({
       { find: /^@\//, replacement: resolve(__dirname, "../src") + "/" },
     ],
   },
-});
+};
+

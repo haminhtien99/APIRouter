@@ -1,4 +1,4 @@
-import { AI_PROVIDERS } from "../shared/constants/providers.js";
+import { AI_PROVIDERS, resolveProviderId } from "../shared/constants/providers.js";
 
 /**
  * Detect xAI Grok models by id pattern (grok-*, Grok_*, etc).
@@ -15,13 +15,16 @@ export function normalizeProviderId(provider) {
   const trimmed = provider.trim();
   if (AI_PROVIDERS[trimmed]) return trimmed;
 
+  const resolved = resolveProviderId(trimmed);
+  if (AI_PROVIDERS[resolved]) return resolved;
+
   const slug = trimmed.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   if (AI_PROVIDERS[slug]) return slug;
 
   const providerByName = Object.values(AI_PROVIDERS).find(
     (entry) => entry.name?.toLowerCase() === trimmed.toLowerCase()
   );
-  return providerByName?.id || trimmed;
+  return providerByName?.id || resolved || trimmed;
 }
 
 export function normalizeProviderSpecificData(provider, body = {}, providerSpecificData = null) {

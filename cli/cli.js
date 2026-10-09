@@ -218,6 +218,42 @@ function getAppDataDir() {
     : path.join(os.homedir(), ".apirouter");
 }
 
+function loadEnvFile(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) return;
+    const content = fs.readFileSync(filePath, "utf8");
+    for (const rawLine of content.split("\n")) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith("#")) continue;
+      const eqIdx = line.indexOf("=");
+      if (eqIdx === -1) continue;
+      const key = line.slice(0, eqIdx).trim();
+      let val = line.slice(eqIdx + 1).trim();
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1);
+      }
+      if (key && !process.env[key]) {
+        process.env[key] = val;
+      }
+    }
+  } catch {}
+}
+
+function loadAllEnvFiles() {
+  const candidateDirs = [
+    process.cwd(),
+    path.resolve(__dirname, ".."),
+    getAppDataDir(),
+    path.join(__dirname, "app"),
+  ];
+  for (const dir of candidateDirs) {
+    loadEnvFile(path.join(dir, ".env.local"));
+    loadEnvFile(path.join(dir, ".env"));
+  }
+}
+
+loadAllEnvFiles();
+
 // Kill PID from file (best-effort, removes file after)
 function killByPidFile(pidFile) {
   try {

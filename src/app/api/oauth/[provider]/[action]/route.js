@@ -92,7 +92,8 @@ async function completeXaiManualCode(code, state) {
 // GET /api/oauth/[provider]/device-code - Request device code (for device_code flow)
 export async function GET(request, { params }) {
   try {
-    const { provider, action } = await params;
+    let { provider, action } = await params;
+    if (provider === "agy" || provider === "ag") provider = "antigravity";
     const { searchParams } = new URL(request.url);
 
     if (action === "authorize") {
@@ -292,7 +293,8 @@ export async function GET(request, { params }) {
 // POST /api/oauth/[provider]/poll - Poll for token (device_code flow)
 export async function POST(request, { params }) {
   try {
-    const { provider, action } = await params;
+    let { provider, action } = await params;
+    if (provider === "agy" || provider === "ag") provider = "antigravity";
     let body;
     try {
       body = await request.json();

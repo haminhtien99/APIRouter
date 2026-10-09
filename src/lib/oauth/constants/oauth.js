@@ -44,6 +44,12 @@ export const IFLOW_CONFIG = { ...PROVIDER_OAUTH["iflow"] };
 export const ANTIGRAVITY_CONFIG = {
   ...ANTIGRAVITY_OAUTH_CLIENT,
   ...PROVIDER_OAUTH["antigravity"],
+  get clientId() {
+    return ANTIGRAVITY_OAUTH_CLIENT.clientId || process.env.ANTIGRAVITY_OAUTH_CLIENT_ID || "";
+  },
+  get clientSecret() {
+    return ANTIGRAVITY_OAUTH_CLIENT.clientSecret || process.env.ANTIGRAVITY_OAUTH_CLIENT_SECRET || "";
+  },
   loadCodeAssistClientMetadata: JSON.stringify({ ideType: 9, platform: getOAuthPlatformEnum(), pluginType: 2 }),
 };
 

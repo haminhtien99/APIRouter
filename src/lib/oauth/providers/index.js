@@ -62,8 +62,9 @@ export { extractCodexAccountInfo, fetchKiroProfileArn };
  * Get provider handler
  */
 export function getProvider(name) {
-  // Legacy kimi-coding → kimi (dual-auth merge)
-  const key = name === "kimi-coding" ? "kimi" : name;
+  // Legacy kimi-coding → kimi (dual-auth merge), ag / agy → antigravity
+  let key = name === "kimi-coding" ? "kimi" : name;
+  if (key === "ag" || key === "agy") key = "antigravity";
   const provider = PROVIDERS[key];
   if (!provider) {
     throw new Error(`Unknown provider: ${name}`);

@@ -1,5 +1,6 @@
 import { PROVIDERS } from "../config/providers.js";
 import { OAUTH_ENDPOINTS, REFRESH_LEAD_MS } from "../config/appConstants.js";
+import { ANTIGRAVITY_OAUTH_CLIENT } from "../providers/shared.js";
 import {
   refreshXaiToken,
   refreshAccessToken,
@@ -134,7 +135,12 @@ function vertexRefreshHandler(c, log) {
 
 const REFRESH_HANDLERS = {
   "gemini-cli": (c, log) => refreshGoogleToken(c.refreshToken, PROVIDERS["gemini-cli"].clientId, PROVIDERS["gemini-cli"].clientSecret, log),
-  antigravity: (c, log) => refreshGoogleToken(c.refreshToken, PROVIDERS.antigravity.clientId, PROVIDERS.antigravity.clientSecret, log),
+  antigravity: (c, log) => refreshGoogleToken(
+    c.refreshToken,
+    PROVIDERS.antigravity?.clientId || ANTIGRAVITY_OAUTH_CLIENT.clientId || process.env.ANTIGRAVITY_OAUTH_CLIENT_ID,
+    PROVIDERS.antigravity?.clientSecret || ANTIGRAVITY_OAUTH_CLIENT.clientSecret || process.env.ANTIGRAVITY_OAUTH_CLIENT_SECRET,
+    log
+  ),
   claude: (c, log) => refreshClaudeOAuthToken(c.refreshToken, log),
   codex: (c, log) => refreshCodexToken(c.refreshToken, log),
   iflow: (c, log) => refreshIflowToken(c.refreshToken, log),

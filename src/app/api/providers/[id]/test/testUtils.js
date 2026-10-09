@@ -3,6 +3,7 @@ import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/sha
 import { getDefaultModel } from "open-sse/config/providerModels.js";
 import { resolveOllamaLocalHost, PROVIDERS } from "open-sse/config/providers.js";
 import { CODEX_CLI_VERSION } from "open-sse/config/appConstants.js";
+import { ANTIGRAVITY_IDE_USER_AGENT, ANTIGRAVITY_OAUTH_CLIENT } from "open-sse/providers/shared.js";
 import {
   refreshProviderCredentials,
   shouldRefreshCredentials,
@@ -190,9 +191,14 @@ function parseProviderErrorMessage(bodyText, fallback) {
 }
 
 async function probeCloudCodeAssistAccess(connection, accessToken, effectiveProxy = null) {
-  const userAgent = connection.provider === "antigravity"
-    ? "google-api-nodejs-client/9.15.1 vscode-antigravity/1.107.0"
+  const isAntigravity = connection.provider === "antigravity";
+  const userAgent = isAntigravity
+    ? ANTIGRAVITY_IDE_USER_AGENT
     : "google-api-nodejs-client/9.15.1 gemini-cli/0.34.0";
+
+  const requestBody = isAntigravity
+    ? JSON.stringify({ metadata: { ideType: 9, platform: 4, pluginType: 2 } })
+    : CLOUD_CODE_ASSIST_TEST_BODY;
 
   const res = await fetchWithConnectionProxy(CLOUD_CODE_ASSIST_TEST_URL, {
     method: "POST",
@@ -201,10 +207,27 @@ async function probeCloudCodeAssistAccess(connection, accessToken, effectiveProx
       "Content-Type": "application/json",
       "User-Agent": userAgent,
     },
-    body: CLOUD_CODE_ASSIST_TEST_BODY,
+    body: requestBody,
   }, effectiveProxy);
 
   if (res.ok) return { valid: true, error: null };
+
+  // Fallback probe to Google userinfo if loadCodeAssist fails
+  try {
+    const userinfoRes = await fetchWithConnectionProxy(
+      "https://www.googleapis.com/oauth2/v1/userinfo?alt=json",
+      {
+        method: "GET",
+        headers: {
+          "Authorization": `Bearer ${accessToken}`,
+        },
+      },
+      effectiveProxy
+    );
+    if (userinfoRes.ok) {
+      return { valid: true, error: null };
+    }
+  } catch {}
 
   const bodyText = await res.text().catch(() => "");
   return {
@@ -222,17 +245,23 @@ async function refreshOAuthToken(connection) {
   try {
     if (provider === "gemini-cli" || provider === "antigravity") {
       const config = provider === "gemini-cli" ? GEMINI_CONFIG : ANTIGRAVITY_CONFIG;
+      const clientId = config.clientId || ANTIGRAVITY_OAUTH_CLIENT.clientId || process.env.ANTIGRAVITY_OAUTH_CLIENT_ID;
+      const clientSecret = config.clientSecret || ANTIGRAVITY_OAUTH_CLIENT.clientSecret || process.env.ANTIGRAVITY_OAUTH_CLIENT_SECRET;
       const response = await fetch("https://oauth2.googleapis.com/token", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
-          client_id: config.clientId,
-          client_secret: config.clientSecret,
+          client_id: clientId,
+          client_secret: clientSecret,
           grant_type: "refresh_token",
           refresh_token: refreshToken,
         }),
       });
-      if (!response.ok) return null;
+      if (!response.ok) {
+        const errText = await response.text().catch(() => "");
+        console.error(`[testUtils] ${provider} token refresh failed (HTTP ${response.status}):`, errText);
+        return null;
+      }
       const data = await response.json();
       return { accessToken: data.access_token, expiresIn: data.expires_in, refreshToken: data.refresh_token || refreshToken };
     }

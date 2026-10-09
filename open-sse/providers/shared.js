@@ -93,11 +93,31 @@ export const ANTIGRAVITY_IDE_USER_AGENT = `antigravity/ide/${ANTIGRAVITY_IDE_VER
 
 // OAuth client credentials are supplied at runtime so repository history never contains them.
 export const ANTIGRAVITY_OAUTH_CLIENT = {
-  clientId: process.env.ANTIGRAVITY_OAUTH_CLIENT_ID || "",
-  clientSecret: process.env.ANTIGRAVITY_OAUTH_CLIENT_SECRET || ""
+  get clientId() {
+    return process.env.ANTIGRAVITY_OAUTH_CLIENT_ID || "";
+  },
+  set clientId(v) {
+    process.env.ANTIGRAVITY_OAUTH_CLIENT_ID = v;
+  },
+  get clientSecret() {
+    return process.env.ANTIGRAVITY_OAUTH_CLIENT_SECRET || "";
+  },
+  set clientSecret(v) {
+    process.env.ANTIGRAVITY_OAUTH_CLIENT_SECRET = v;
+  }
 };
 
 export const GOOGLE_OAUTH_CLIENT = {
-  clientId: process.env.GOOGLE_OAUTH_CLIENT_ID || "",
-  clientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET || ""
+  get clientId() {
+    return process.env.GOOGLE_OAUTH_CLIENT_ID || "";
+  },
+  set clientId(v) {
+    process.env.GOOGLE_OAUTH_CLIENT_ID = v;
+  },
+  get clientSecret() {
+    return process.env.GOOGLE_OAUTH_CLIENT_SECRET || "";
+  },
+  set clientSecret(v) {
+    process.env.GOOGLE_OAUTH_CLIENT_SECRET = v;
+  }
 };

@@ -134,7 +134,7 @@ const OAUTH_PROVIDERS = {
   codex: { id: "codex", alias: "cx", name: "OpenAI Codex" },
   "gemini-cli": { id: "gemini-cli", alias: "gc", name: "Gemini CLI" },
   github: { id: "github", alias: "gh", name: "GitHub Copilot" },
-  antigravity: { id: "antigravity", alias: "ag", name: "Antigravity" },
+  antigravity: { id: "antigravity", alias: "ag", aliases: ["ag", "agy"], name: "Antigravity" },
   iflow: { id: "iflow", alias: "if", name: "iFlow AI" },
   qwen: { id: "qwen", alias: "qw", name: "Qwen Code" },
   kiro: { id: "kiro", alias: "kr", name: "Kiro AI" },
@@ -150,7 +150,9 @@ const APIKEY_PROVIDERS = {
   gemini: { id: "gemini", name: "Gemini" },
 };
 
-const ALL_PROVIDERS = { ...OAUTH_PROVIDERS, ...APIKEY_PROVIDERS };
+PROVIDER_MODELS.agy = PROVIDER_MODELS.ag;
+
+const ALL_PROVIDERS = { ...OAUTH_PROVIDERS, ...APIKEY_PROVIDERS, agy: OAUTH_PROVIDERS.antigravity, ag: OAUTH_PROVIDERS.antigravity };
 
 /**
  * Get auth type for provider
