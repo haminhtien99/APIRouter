@@ -59,6 +59,7 @@ const TERMINAL_PROVIDERS = [
   { id: "iflow", name: "iFlow AI", authType: "oauth", flow: "callback" },
   { id: "qwen", name: "Qwen Code", authType: "oauth", flow: "device" },
   { id: "kiro", name: "Kiro AI", authType: "oauth", flow: "device" },
+  { id: "deepseek", name: "DeepSeek", authType: "apikey", credentialLabel: "API key" },
   { id: "openrouter", name: "OpenRouter", authType: "apikey", credentialLabel: "API key" },
   { id: "glm", name: "GLM Coding", authType: "apikey", credentialLabel: "API key" },
   { id: "minimax", name: "Minimax Coding", authType: "apikey", credentialLabel: "API key" },

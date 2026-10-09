@@ -1,3 +1,14 @@
+# v0.5.82-dev.3 (2026-10-09)
+
+## Features
+- **DeepSeek CLI**: integrate DeepSeek API Key provider directly into Terminal UI, including provider connection management and model selector (`ds` / `deepseek`)
+- **Antigravity**: support `agy` as canonical alias alongside `ag` across all routing, normalization, dashboard, and OAuth handlers
+
+## Fixes
+- **Antigravity**: automatically load `.env.local` in standalone server and CLI launcher so OAuth credentials are provided at runtime
+- **Antigravity**: fix token refresh and connection probe with standard IDE user agent and metadata
+- **Telegram Bot**: add DeepSeek to terminal providers
+
 # v0.5.82-dev.2 (2026-10-05)
 
 ## Features

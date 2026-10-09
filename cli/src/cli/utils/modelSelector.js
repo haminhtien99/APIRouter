@@ -5,7 +5,7 @@ const { clearScreen } = require("./display");
 // Provider alias order: OAuth first, then API Key (matches ModelSelectModal)
 const PROVIDER_ALIAS_ORDER = [
   "cc", "ag", "cx", "if", "qw", "gc", "gh", "kr",
-  "openrouter", "glm", "kimi", "minimax", "openai", "anthropic", "gemini"
+  "deepseek", "ds", "openrouter", "glm", "kimi", "minimax", "openai", "anthropic", "gemini"
 ];
 
 // Alias to display name mapping
@@ -18,6 +18,8 @@ const PROVIDER_ALIAS_NAMES = {
   gc: "Gemini CLI",
   gh: "GitHub Copilot",
   kr: "Kiro AI",
+  deepseek: "DeepSeek",
+  ds: "DeepSeek",
   openrouter: "OpenRouter",
   glm: "GLM Coding",
   kimi: "Kimi Coding",

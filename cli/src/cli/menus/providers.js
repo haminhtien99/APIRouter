@@ -126,6 +126,14 @@ const PROVIDER_MODELS = {
   minimax: [
     { id: "MiniMax-M2.1" },
   ],
+  deepseek: [
+    { id: "deepseek-chat" },
+    { id: "deepseek-reasoner" },
+    { id: "deepseek-v4-pro" },
+    { id: "deepseek-v4-pro-max" },
+    { id: "deepseek-v4.1-flash" },
+    { id: "deepseek-v4-flash" },
+  ],
 };
 
 // Provider definitions
@@ -141,6 +149,7 @@ const OAUTH_PROVIDERS = {
 };
 
 const APIKEY_PROVIDERS = {
+  deepseek: { id: "deepseek", alias: "ds", aliases: ["deepseek", "ds"], name: "DeepSeek" },
   openrouter: { id: "openrouter", name: "OpenRouter" },
   glm: { id: "glm", name: "GLM Coding" },
   minimax: { id: "minimax", name: "Minimax Coding" },
@@ -151,8 +160,15 @@ const APIKEY_PROVIDERS = {
 };
 
 PROVIDER_MODELS.agy = PROVIDER_MODELS.ag;
+PROVIDER_MODELS.ds = PROVIDER_MODELS.deepseek;
 
-const ALL_PROVIDERS = { ...OAUTH_PROVIDERS, ...APIKEY_PROVIDERS, agy: OAUTH_PROVIDERS.antigravity, ag: OAUTH_PROVIDERS.antigravity };
+const ALL_PROVIDERS = {
+  ...OAUTH_PROVIDERS,
+  ...APIKEY_PROVIDERS,
+  agy: OAUTH_PROVIDERS.antigravity,
+  ag: OAUTH_PROVIDERS.antigravity,
+  ds: APIKEY_PROVIDERS.deepseek,
+};
 
 /**
  * Get auth type for provider
@@ -859,4 +875,9 @@ async function handleEditCustomNode(node) {
   await pause();
 }
 
-module.exports = { showProvidersMenu };
+module.exports = {
+  showProvidersMenu,
+  APIKEY_PROVIDERS,
+  ALL_PROVIDERS,
+  PROVIDER_MODELS,
+};

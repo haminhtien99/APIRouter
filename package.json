@@ -1,6 +1,6 @@
 {
   "name": "apirouter-app",
-  "version": "0.5.82-dev.2",
+  "version": "0.5.82-dev.3",
   "description": "APIRouter local AI account and provider gateway",
   "private": true,
   "bin": {
