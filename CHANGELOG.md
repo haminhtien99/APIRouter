@@ -1,3 +1,8 @@
+# v0.5.82-dev.4 (2026-10-13)
+
+## Fixes
+- **Antigravity OAuth**: keep OAuth client credentials in the local environment rather than bundling a third-party client; use the current configured client when refreshing tokens
+
 # v0.5.82-dev.3 (2026-10-09)
 
 ## Features
