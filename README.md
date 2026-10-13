@@ -30,9 +30,9 @@ npm link
 
 The link points to this checkout. After changing the source, run `npm run local:build` again; you do not need to repeat `npm link` unless you move the project.
 
-## Update another computer
+## Update an installation
 
-Changes reach another computer after they are committed and pushed to this repository. On that computer, stop APIRouter, then run:
+Each installation follows a Git branch. After new changes are available on that branch, stop APIRouter on the computer you want to update, then run:
 
 ```bash
 apirouter update --check
@@ -40,7 +40,7 @@ apirouter update
 apirouter --version
 ```
 
-The update command fetches the branch tracked by that checkout, accepts only a fast-forward update, installs the locked dependencies, and rebuilds the CLI. It stops if the checkout has local changes or diverged from the remote branch. Application data in `~/.apirouter` stays on that computer. If the command was not linked, run `npm run update:check` and `npm run update:local` from the project directory instead.
+The update command fetches the branch tracked by that checkout. Applying an update requires a clean checkout and a fast-forward path from the current commit; it then installs the locked dependencies and rebuilds the CLI. Application data in `~/.apirouter` stays on that computer. If the command was not linked, run `npm run update:check` and `npm run update:local` from the project directory instead.
 
 The Dashboard shows the available version and the `apirouter update` command when the tracked Git branch has newer commits. It checks on load and every five minutes. Exit APIRouter before running the command in a terminal; the Dashboard only displays the instructions.
 
@@ -53,19 +53,7 @@ npm --prefix cli ci
 npm run local:build
 ```
 
-The version shown by `apirouter --version` and the dashboard comes from `cli/package.json`; the build copies it to the app package. Development builds use a `-dev.N` suffix. To publish a stable release, the maintainer can set the version in both packages, update `CHANGELOG.md`, then commit and tag it:
-
-```bash
-npm --prefix cli version 0.5.82 --no-git-tag-version
-npm version 0.5.82 --no-git-tag-version
-git add cli/package.json cli/package-lock.json package.json package-lock.json CHANGELOG.md
-git commit -m "release: v0.5.82"
-git tag v0.5.82
-git push origin main
-git push origin v0.5.82
-```
-
-Replace `0.5.82` with the release number. Tags name a specific version; `apirouter update` follows the checkout's tracked branch to get the newest committed version.
+For maintainer release steps, see [Releasing](docs/releasing.md).
 
 ## Codex and DeepSeek
 
