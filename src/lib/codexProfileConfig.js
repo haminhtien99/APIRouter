@@ -1,5 +1,5 @@
 export const CODEX_APIROUTER_PROFILE_NAME = "apirouter";
-export const DEFAULT_OFFICIAL_CODEX_MODEL = "gpt-6-sol";
+export const DEFAULT_OFFICIAL_CODEX_MODEL = "gpt-6.1-sol";
 
 const isPlainObject = (value) =>
   value !== null && typeof value === "object" && !Array.isArray(value);

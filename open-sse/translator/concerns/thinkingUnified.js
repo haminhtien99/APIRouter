@@ -305,9 +305,11 @@ function applyFormat(fmt, body, cfg, caps, supportedLevels, display) {
     case "deepseek": {
       if (none && canDisable) { body.thinking = { type: "disabled" }; break; }
       body.thinking = { type: "enabled" };
-      // DeepSeek: low/medium→high, xhigh/max→max.
+      // The official API supports low, high and max. Other gateways retain
+      // their advertised levels and the legacy low/medium -> high mapping.
       const level = toLevel(eff);
-      body.reasoning_effort = level === "xhigh" || level === "max" ? "max" : "high";
+      body.reasoning_effort = level === "xhigh" || level === "max" || level === "ultra" ? "max"
+        : (level === "low" || level === "minimal") && supportedLevels?.includes("low") ? "low" : "high";
       break;
     }
     case "kimi": {
@@ -384,7 +386,18 @@ export function applyThinking(targetFormat, model, body, provider = null, intent
   // Anthropic's `display` (summarized | omitted) decides whether thinking text
   // comes back at all; keep what the client asked for instead of resetting it.
   const display = typeof body.thinking?.display === "string" ? body.thinking.display : undefined;
+  const reasoning = body.reasoning;
   stripAll(body);
   applyFormat(fmt, body, cfg, caps, supportedLevels, display);
+  // DeepSeek's Responses endpoint takes reasoning.effort, whereas its chat
+  // endpoint takes thinking + reasoning_effort. Keep Responses history intact.
+  if (fmt === "deepseek" && targetFormat === "openai-responses") {
+    body.reasoning = {
+      ...(reasoning && typeof reasoning === "object" && !Array.isArray(reasoning) ? reasoning : {}),
+      effort: body.thinking?.type === "disabled" ? "none" : body.reasoning_effort,
+    };
+    delete body.thinking;
+    delete body.reasoning_effort;
+  }
   return body;
 }

@@ -21,14 +21,13 @@ const PROVIDER_MODELS = {
     { id: "claude-haiku-4-5-20251001" },
   ],
   cx: [
-    { id: "gpt-5.2-codex" },
-    { id: "gpt-5.2" },
-    { id: "gpt-5.1-codex-max" },
-    { id: "gpt-5.1-codex" },
-    { id: "gpt-5.1-codex-mini" },
-    { id: "gpt-5.1" },
-    { id: "gpt-5-codex" },
-    { id: "gpt-5-codex-mini" },
+    { id: "gpt-6.1-sol" },
+    { id: "gpt-6-astra" },
+    { id: "gpt-6-sol" },
+    { id: "gpt-6-luna" },
+    { id: "gpt-5.6-sol" },
+    { id: "gpt-5.6-terra" },
+    { id: "gpt-5.6-luna" },
   ],
   gc: [
     { id: "gemini-3-flash-preview" },
@@ -127,12 +126,8 @@ const PROVIDER_MODELS = {
     { id: "MiniMax-M2.1" },
   ],
   deepseek: [
-    { id: "deepseek-chat" },
-    { id: "deepseek-reasoner" },
     { id: "deepseek-v4-pro" },
-    { id: "deepseek-v4-pro-max" },
-    { id: "deepseek-v4.1-flash" },
-    { id: "deepseek-v4-flash" },
+    { id: "deepseek-flash" },
   ],
 };
 

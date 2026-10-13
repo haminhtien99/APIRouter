@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { APIKEY_PROVIDERS, ALL_PROVIDERS, PROVIDER_MODELS } from "../../cli/src/cli/menus/providers.js";
+import deepseek from "../../open-sse/providers/registry/deepseek.js";
 
 describe("Terminal UI DeepSeek provider integration", () => {
   it("includes deepseek in APIKEY_PROVIDERS with proper configuration", () => {
@@ -22,8 +23,8 @@ describe("Terminal UI DeepSeek provider integration", () => {
     expect(PROVIDER_MODELS.ds).toEqual(PROVIDER_MODELS.deepseek);
 
     const modelIds = PROVIDER_MODELS.deepseek.map((m) => m.id);
-    expect(modelIds).toContain("deepseek-chat");
-    expect(modelIds).toContain("deepseek-reasoner");
+    expect(modelIds).toEqual(["deepseek-v4-pro", "deepseek-flash"]);
+    expect(modelIds).toEqual(deepseek.models.map((model) => model.id));
   });
 
   it("includes deepseek in modelSelector configuration", async () => {

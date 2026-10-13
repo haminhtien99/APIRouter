@@ -1,6 +1,9 @@
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
+import { getModelUpstreamId } from "../../open-sse/config/providerModels.js";
+import { resolveProviderAlias } from "../../open-sse/services/model.js";
+import { getThinkingLevels } from "../../open-sse/providers/thinkingLevels.js";
 
 const DEFAULT_REASONING_LEVELS = [
   { effort: "low", description: "Fast responses with lighter reasoning" },
@@ -29,6 +32,31 @@ const TEMPLATE_FIELDS = [
   "experimental_supported_tools",
   "input_modalities",
 ];
+
+// Preserve the current client's model-specific prompts and tool behavior only
+// for its own models. Third-party models use the portable preset above.
+const NATIVE_TEMPLATE_FIELDS = [
+  "model_messages",
+  "include_skills_usage_instructions",
+  "include_plugin_usage_instructions",
+  "include_apps_usage_instructions",
+  "supports_search_tool",
+  "supports_experimental_context",
+  "supports_reasoning_effort_updates",
+  "node_repl_auto_review_required",
+  "node_repl_disabled",
+  "tool_mode",
+  "multi_agent_version",
+  "multi_agent_reasoning_effort",
+];
+
+function modelIdentity(model) {
+  const slash = model.id.indexOf("/");
+  const alias = slash < 0 ? model.owned_by : model.id.slice(0, slash);
+  const id = slash < 0 ? model.id : model.id.slice(slash + 1);
+  const upstreamId = getModelUpstreamId(alias, id).replace(/\([^()]+\)\s*$/, "");
+  return { provider: resolveProviderAlias(alias), id: upstreamId };
+}
 
 export function getCodexHome() {
   return process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
@@ -77,10 +105,10 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-function compatibleTemplate(template) {
+function compatibleTemplate(template, native = false) {
   if (!template) return fallbackPreset();
   const compatible = {};
-  for (const field of TEMPLATE_FIELDS) {
+  for (const field of [...TEMPLATE_FIELDS, ...(native ? NATIVE_TEMPLATE_FIELDS : [])]) {
     if (template[field] !== undefined) compatible[field] = clone(template[field]);
   }
   if (!compatible.base_instructions && template.model_messages?.instructions_template) {
@@ -89,7 +117,7 @@ function compatibleTemplate(template) {
   return { ...fallbackPreset(), ...compatible };
 }
 
-export function buildCodexModelCatalog(models, { template = null } = {}) {
+export function buildCodexModelCatalog(models, { template = null, templates = [] } = {}) {
   const uniqueModels = [];
   const seen = new Set();
 
@@ -104,8 +132,12 @@ export function buildCodexModelCatalog(models, { template = null } = {}) {
     throw new Error("No APIRouter models or combos are available for Codex");
   }
 
-  const basePreset = compatibleTemplate(template);
   const entries = uniqueModels.map((model, priority) => {
+    const identity = modelIdentity(model);
+    const nativeTemplate = identity.provider === "codex"
+      ? templates.find((candidate) => candidate.slug === identity.id)
+      : null;
+    const basePreset = compatibleTemplate(nativeTemplate || template, !!nativeTemplate);
     const entry = {
       ...clone(basePreset),
       slug: model.id,
@@ -115,11 +147,31 @@ export function buildCodexModelCatalog(models, { template = null } = {}) {
       supported_in_api: true,
       priority,
       upgrade: null,
+      // APIRouter exposes the standard Responses endpoint, not /responses/lite.
+      use_responses_lite: false,
     };
 
-    if (Number.isFinite(model.context_length)) {
+    if (Number.isFinite(model.context_length) && model.context_length > 0 && !nativeTemplate) {
       entry.context_window = model.context_length;
       entry.max_context_window = model.context_length;
+    }
+    if (!nativeTemplate && model.owned_by !== "combo") {
+      const levels = getThinkingLevels(identity.provider, identity.id);
+      if (levels) {
+        entry.supported_reasoning_levels = levels.map((effort) => ({
+          effort,
+          description: DEFAULT_REASONING_LEVELS.find((level) => level.effort === effort)?.description || `${effort} reasoning`,
+        }));
+        if (!levels.includes(entry.default_reasoning_level)) {
+          entry.default_reasoning_level = levels.includes("high") ? "high" : levels[0];
+        }
+      } else if (model.capabilities?.reasoning === false) {
+        entry.supported_reasoning_levels = [];
+        entry.default_reasoning_level = null;
+      }
+      if (typeof model.capabilities?.vision === "boolean") {
+        entry.input_modalities = model.capabilities.vision ? ["text", "image"] : ["text"];
+      }
     }
 
     return entry;
@@ -128,21 +180,22 @@ export function buildCodexModelCatalog(models, { template = null } = {}) {
   return { models: entries };
 }
 
-async function readCodexTemplate(preferredModel) {
+async function readCodexTemplates(preferredModel) {
   try {
     const cachePath = path.join(getCodexHome(), "models_cache.json");
     const cache = JSON.parse(await fs.readFile(cachePath, "utf8"));
     const models = Array.isArray(cache?.models) ? cache.models : [];
-    return models.find((model) => model.slug === preferredModel) || models[0] || null;
+    const preferredId = modelIdentity({ id: preferredModel || "", owned_by: "cx" }).id;
+    return { templates: models, template: models.find((model) => model.slug === preferredId) || models[0] || null };
   } catch {
-    return null;
+    return { templates: [], template: null };
   }
 }
 
 export async function writeCodexModelCatalog(models, { preferredModel } = {}) {
   const catalogPath = getCodexModelCatalogPath();
-  const template = await readCodexTemplate(preferredModel);
-  const catalog = buildCodexModelCatalog(models, { template });
+  const templates = await readCodexTemplates(preferredModel);
+  const catalog = buildCodexModelCatalog(models, templates);
   const temporaryPath = `${catalogPath}.tmp`;
 
   await fs.mkdir(path.dirname(catalogPath), { recursive: true });

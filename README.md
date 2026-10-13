@@ -67,6 +67,14 @@ git push origin v0.5.82
 
 Replace `0.5.82` with the release number. Tags name a specific version; `apirouter update` follows the checkout's tracked branch to get the newest committed version.
 
+## Codex and DeepSeek
+
+The current integration targets Codex CLI 0.162.1 and the Responses API. Configure Codex in the Dashboard's CLI Tools page, then launch `codex -p apirouter`. After updating APIRouter, save the Codex configuration again to regenerate its model catalog from the installed client's cache, then start a new Codex session.
+
+DeepSeek's official API has two primary model IDs: `ds/deepseek-v4-pro` (DeepSeek V4 Pro 0813) and `ds/deepseek-flash` (DeepSeek V4.1 Flash). Both support thinking and non-thinking modes, a 1M context and up to 384K output tokens; Flash also accepts images. Select an effort using the model picker or suffix, for example `ds/deepseek-flash(max)` or `ds/deepseek-v4-pro(none)`.
+
+`deepseek-v4-flash` and `deepseek-v4-flash-vision-exp` are legacy API names served by current Flash. They are omitted from the picker to avoid duplicate entries. Saved routes using the previous local `deepseek-v4-pro-max` / `deepseek-v4-pro-none` variants should use `deepseek-v4-pro(max)` / `deepseek-v4-pro(none)` instead; saved `deepseek-v4.1-flash`, `deepseek-chat` and `deepseek-reasoner` routes should select a current model explicitly. See [DeepSeek's model details](https://api-docs.deepseek.com/quick_start/pricing/) and [Responses API compatibility](https://api-docs.deepseek.com/guides/responses_api/).
+
 ## Start
 
 After linking, run from any directory:

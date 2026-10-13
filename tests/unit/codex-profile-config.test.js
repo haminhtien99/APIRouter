@@ -71,6 +71,6 @@ describe("Codex APIRouter profile config", () => {
 
   it("uses an official equivalent only for direct Codex models", () => {
     expect(officialModelFor("cx/gpt-6-sol")).toBe("gpt-6-sol");
-    expect(officialModelFor("my_combo")).toBe("gpt-6-sol");
+    expect(officialModelFor("my_combo")).toBe("gpt-6.1-sol");
   });
 });

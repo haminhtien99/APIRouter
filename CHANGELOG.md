@@ -1,3 +1,14 @@
+# v0.5.82-dev.5 (2026-10-14)
+
+## Fixes
+- **Codex**: update backend CLI identity to 0.162.1; refresh terminal model choices and remove retired GPT-5.5, GPT-5.4, GPT-5.4 Mini and Spark chat entries from the OAuth catalog
+- **Codex CLI**: build each native model's catalog entry from its own cached prompts, tool settings, reasoning levels and context limits; preserve current model messages and disable Responses Lite, which APIRouter does not expose
+- **Codex CLI**: use GPT-6.1 Sol as the fallback official model when migrating a combo configuration; advertise third-party reasoning levels and image support per model
+- **DeepSeek API**: list only `deepseek-v4-pro` (V4 Pro 0813) and `deepseek-flash` (V4.1 Flash) in the provider, terminal menu and DeepSeek TUI setup; thinking modes are request settings rather than separate models
+- **DeepSeek API**: route Responses clients directly to `/responses`, preserving tool and reasoning history; normalize effort to `none`, `low`, `high` or `max` and correct official Flash context/output limits to 1M/384K
+
+References: [Codex models](https://learn.chatgpt.com/docs/models), [DeepSeek model details](https://api-docs.deepseek.com/quick_start/pricing/), [DeepSeek Responses API](https://api-docs.deepseek.com/guides/responses_api/).
+
 # v0.5.82-dev.4 (2026-10-13)
 
 ## Fixes
