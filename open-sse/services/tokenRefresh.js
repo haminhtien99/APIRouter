@@ -137,8 +137,8 @@ const REFRESH_HANDLERS = {
   "gemini-cli": (c, log) => refreshGoogleToken(c.refreshToken, PROVIDERS["gemini-cli"].clientId, PROVIDERS["gemini-cli"].clientSecret, log),
   antigravity: (c, log) => refreshGoogleToken(
     c.refreshToken,
-    PROVIDERS.antigravity?.clientId || ANTIGRAVITY_OAUTH_CLIENT.clientId || process.env.ANTIGRAVITY_OAUTH_CLIENT_ID,
-    PROVIDERS.antigravity?.clientSecret || ANTIGRAVITY_OAUTH_CLIENT.clientSecret || process.env.ANTIGRAVITY_OAUTH_CLIENT_SECRET,
+    ANTIGRAVITY_OAUTH_CLIENT.clientId,
+    ANTIGRAVITY_OAUTH_CLIENT.clientSecret,
     log
   ),
   claude: (c, log) => refreshClaudeOAuthToken(c.refreshToken, log),

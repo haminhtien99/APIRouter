@@ -91,16 +91,16 @@ export const ANTIGRAVITY_IDE_VERSION = "2.11.0";
 export const ANTIGRAVITY_IDE_BASE_URL = "https://daily-cloudcode-pa.googleapis.com";
 export const ANTIGRAVITY_IDE_USER_AGENT = `antigravity/ide/${ANTIGRAVITY_IDE_VERSION} darwin/arm64`;
 
-// OAuth client credentials are supplied at runtime so repository history never contains them.
+// OAuth client credentials are supplied locally at runtime; do not commit them.
 export const ANTIGRAVITY_OAUTH_CLIENT = {
   get clientId() {
-    return process.env.ANTIGRAVITY_OAUTH_CLIENT_ID || "";
+    return process.env.ANTIGRAVITY_OAUTH_CLIENT_ID?.trim() || "";
   },
   set clientId(v) {
     process.env.ANTIGRAVITY_OAUTH_CLIENT_ID = v;
   },
   get clientSecret() {
-    return process.env.ANTIGRAVITY_OAUTH_CLIENT_SECRET || "";
+    return process.env.ANTIGRAVITY_OAUTH_CLIENT_SECRET?.trim() || "";
   },
   set clientSecret(v) {
     process.env.ANTIGRAVITY_OAUTH_CLIENT_SECRET = v;
