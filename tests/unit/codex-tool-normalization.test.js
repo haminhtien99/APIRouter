@@ -21,6 +21,45 @@ function normalizeTools(tools, userText = "probe") {
 }
 
 describe("CodexExecutor tool normalization", () => {
+  it("declares historical web search during native compaction without enabling a new search", () => {
+    const body = {
+      model: "gpt-6.1-sol",
+      input: [
+        { type: "web_search_call", id: "ws_123", status: "completed" },
+        { type: "message", role: "user", content: [{ type: "input_text", text: "Summarize the conversation" }] },
+      ],
+      tools: [],
+      tool_choice: "auto",
+      stream: true,
+    };
+
+    new CodexExecutor().transformRequest(body.model, body, true, {
+      connectionId: "test-codex-compaction",
+      providerSpecificData: {},
+    });
+
+    assert.deepEqual(body.tools, [{ type: "web_search" }]);
+    assert.equal(body.tool_choice, "none");
+    assert.equal(body.input[0].type, "web_search_call");
+  });
+
+  it("preserves existing search declarations and tool choices", () => {
+    const body = {
+      model: "gpt-6.1-sol",
+      input: [{ type: "web_search_call", status: "completed" }],
+      tools: [{ type: "web_search", search_context_size: "medium" }],
+      tool_choice: "auto",
+    };
+
+    new CodexExecutor().transformRequest(body.model, body, true, {
+      connectionId: "test-codex-search",
+      providerSpecificData: {},
+    });
+
+    assert.deepEqual(body.tools, [{ type: "web_search", search_context_size: "medium" }]);
+    assert.equal(body.tool_choice, "auto");
+  });
+
   it("omits an unrequested goal token budget from flat and namespace tools", () => {
     const parameters = {
       type: "object",

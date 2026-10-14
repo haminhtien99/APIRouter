@@ -36,7 +36,6 @@ const executors = {
   qoder: new QoderExecutor(),
   kiro: new KiroExecutor(),
   kimchi: new KimchiExecutor(),
-  codex: new CodexExecutor(),
   cursor: new CursorExecutor(),
   cu: new CursorExecutor(), // Alias for cursor
   vertex: new VertexExecutor("vertex"),
@@ -65,13 +64,16 @@ const executors = {
 const defaultCache = new Map();
 
 export function getExecutor(provider) {
+  // Codex keeps compact routing and session headers on the executor instance.
+  // Each request needs its own instance so concurrent calls cannot share them.
+  if (provider === "codex") return new CodexExecutor();
   if (executors[provider]) return executors[provider];
   if (!defaultCache.has(provider)) defaultCache.set(provider, new DefaultExecutor(provider));
   return defaultCache.get(provider);
 }
 
 export function hasSpecializedExecutor(provider) {
-  return !!executors[provider];
+  return provider === "codex" || !!executors[provider];
 }
 
 export { BaseExecutor } from "./base.js";

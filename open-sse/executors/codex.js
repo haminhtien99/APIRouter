@@ -165,6 +165,21 @@ function normalizeCodexTools(body) {
   }
 }
 
+// Codex replays hosted search calls during local compaction with tools: [].
+// The backend requires the historical tool to be declared even though the
+// compaction turn must not be allowed to start a new search.
+function declareHistoricalWebSearch(body) {
+  if (!Array.isArray(body.input) || !body.input.some((item) => item?.type === "web_search_call")) return;
+  const isWebSearch = (tool) => tool?.type === "web_search" || tool?.type === "web_search_preview";
+  if (body.tools?.some?.(isWebSearch) || body.input.some((item) =>
+    item?.type === "additional_tools" && item.tools?.some?.(isWebSearch))) return;
+
+  const hadNoTools = !Array.isArray(body.tools) || body.tools.length === 0;
+  body.tools = [...(Array.isArray(body.tools) ? body.tools : []), { type: "web_search" }];
+  if (hadNoTools) body.tool_choice = "none";
+  dbg("CODEX", "declared historical web_search for replayed web_search_call");
+}
+
 // Resolve prompt-cache session id: client session → assistant-text-hash → workspaceId → connection
 function resolveCacheSessionId(body, credentials) {
   return resolveSessionId({
@@ -222,6 +237,38 @@ function extractSseErrorMessage(text, fallback) {
   }
 
   return fallback || CODEX_MODEL_CAPACITY_MESSAGE;
+}
+
+function extractSseErrorDetails(text) {
+  let eventName = null;
+  for (const line of String(text || "").split(/\r?\n/)) {
+    if (!line.trim()) {
+      eventName = null;
+      continue;
+    }
+    if (line.startsWith("event:")) {
+      eventName = line.slice(6).trim();
+      continue;
+    }
+    if (!line.startsWith("data:")) continue;
+    try {
+      const parsed = JSON.parse(line.slice(5).trim());
+      const type = eventName || parsed?.type;
+      if (type !== "error" && type !== "response.failed") continue;
+      const error = parsed.response?.error || parsed.error || parsed;
+      const details = { event: type };
+      // Keep diagnostics bounded and exclude request bodies and auth fields.
+      for (const key of ["code", "type", "param", "message"]) {
+        if (typeof error?.[key] === "string") {
+          details[key] = error[key].slice(0, key === "message" ? 1000 : 200);
+        }
+      }
+      return details;
+    } catch {
+      // Incomplete or malformed frames are handled by the normal stream path.
+    }
+  }
+  return null;
 }
 
 function codexSseErrorResponse(status, message) {
@@ -308,6 +355,9 @@ export class CodexExecutor extends BaseExecutor {
   }
 
   async execute(args) {
+    // BaseExecutor resolves the URL before transformRequest reads and removes
+    // _compact, so choose the endpoint before the first upstream attempt.
+    this._isCompact = !!args.body?._compact;
     const imgCount = Array.isArray(args.body?.input) ? args.body.input.reduce((n, it) => n + (Array.isArray(it.content) ? it.content.filter(c => c.type === "image_url").length : 0), 0) : 0;
     const inputLen = Array.isArray(args.body?.input) ? args.body.input.length : 0;
     dbg("CODEX", `execute start | inputItems=${inputLen} | images=${imgCount} | sessionId=${this._currentSessionId || "pending"}`);
@@ -326,7 +376,7 @@ export class CodexExecutor extends BaseExecutor {
     let attempt = 0;
     while (true) {
       const result = await super.execute(args);
-      const peek = await this._peekSseTransientError(result.response);
+      const peek = await this._peekSseTransientError(result.response, args.log);
       if (!peek.matched) {
         // Replace body with re-assembled stream (prefix bytes already read + rest)
         if (peek.replacementBody) {
@@ -358,7 +408,7 @@ export class CodexExecutor extends BaseExecutor {
   // Peek first N bytes of SSE body to detect upstream transient errors.
   // Returns { matched: string|null, message: string|null, accountFallback: boolean, replacementBody: ReadableStream|null }.
   // Caller must use replacementBody when no error matched (original body has been read).
-  async _peekSseTransientError(response) {
+  async _peekSseTransientError(response, log = null) {
     if (!response || !response.ok || !response.body) return { matched: null, message: null, accountFallback: false, replacementBody: null };
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -381,6 +431,11 @@ export class CodexExecutor extends BaseExecutor {
       }
     } catch (e) {
       dbg("CODEX", `peek read error: ${e.message}`);
+    }
+
+    const upstreamError = extractSseErrorDetails(text);
+    if (upstreamError) {
+      log?.warn?.("CODEX_UPSTREAM_ERROR", JSON.stringify(upstreamError));
     }
 
     if (matched) {
@@ -462,6 +517,7 @@ export class CodexExecutor extends BaseExecutor {
     stripStoredItemReferences(body);
     // Flatten function tools + drop unsupported types
     normalizeCodexTools(body);
+    declareHistoricalWebSearch(body);
 
     // Ensure streaming is enabled (Codex API requires it)
     body.stream = true;
