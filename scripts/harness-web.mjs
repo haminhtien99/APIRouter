@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 import { DATA_DIR } from "../src/lib/dataDir.js";
 import { claimRuntime, harnessStateFile, publishRuntime, releaseRuntime, validateLaunchUrl } from "../src/lib/harness/runtime.mjs";
+import { applyHarnessThemePatch } from "./patch-harness.mjs";
 
 const project = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const harness = resolve(process.env.APIROUTER_HARNESS_DIR || join(project, "../deepseek-harness"));
@@ -29,6 +30,9 @@ const env = {
     ? join(harness, ".cache/dsh-apirouter") : join(DATA_DIR, "harness")),
 };
 const args = ["dsh", "web", ...process.argv.slice(2), "--host", "127.0.0.1", "--port", port, "--no-open"];
+// Ensure theme sync and appearance toggle removal in harness
+try { applyHarnessThemePatch(harness); } catch (e) {}
+
 await claimRuntime(stateFile, record);
 let child;
 let killTimer;

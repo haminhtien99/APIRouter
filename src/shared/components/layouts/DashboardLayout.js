@@ -39,6 +39,14 @@ export default function DashboardLayout({ children }) {
   const notifications = useNotificationStore((state) => state.notifications);
   const removeNotification = useNotificationStore((state) => state.removeNotification);
   const toggleSidebar = useSidebarStore((state) => state.toggleSidebar);
+  const setCollapsed = useSidebarStore((state) => state.setCollapsed);
+
+  // When on Agent page, auto-collapse APIRouter sidebar to Activity Bar mode
+  useEffect(() => {
+    if (pathname === "/dashboard/agent") {
+      setCollapsed(true);
+    }
+  }, [pathname, setCollapsed]);
 
   // Keyboard shortcut Ctrl+B / Cmd+B to toggle sidebar (inspired by harness & VS Code)
   useEffect(() => {

@@ -219,5 +219,10 @@
   "Expand sidebar": "Mở rộng thanh bên",
   "Collapse sidebar (Ctrl+B)": "Thu gọn thanh bên (Ctrl+B)",
   "Expand sidebar (Ctrl+B)": "Mở rộng thanh bên (Ctrl+B)",
-  "Media Providers": "Nhà cung cấp Media"
+  "Media Providers": "Nhà cung cấp Media",
+  "Focus Mode": "Chế độ tập trung",
+  "Exit Focus": "Thoát tập trung",
+  "Exit Focus Mode": "Thoát chế độ tập trung",
+  "Exit Focus Mode (Esc)": "Thoát chế độ tập trung (Esc)",
+  "Focus Mode (Fullscreen Workspace)": "Chế độ tập trung (Toàn màn hình Workspace)"
 }

@@ -1394,5 +1394,17 @@
   "Collapse sidebar": "折叠侧边栏",
   "Expand sidebar": "展开侧边栏",
   "Collapse sidebar (Ctrl+B)": "折叠侧边栏 (Ctrl+B)",
-  "Expand sidebar (Ctrl+B)": "展开侧边栏 (Ctrl+B)"
+  "Expand sidebar (Ctrl+B)": "展开侧边栏 (Ctrl+B)",
+  "Focus Mode": "专注模式",
+  "Exit Focus": "退出专注",
+  "Exit Focus Mode": "退出专注模式",
+  "Exit Focus Mode (Esc)": "退出专注模式 (Esc)",
+  "Focus Mode (Fullscreen Workspace)": "专注模式 (全屏工作区)",
+  "Agent workspace": "Agent 工作区",
+  "Harness reachable": "Harness 已连接",
+  "Checking harness…": "正在检查 Harness…",
+  "Harness disconnected": "Harness 未连接",
+  "Reconnect": "重新连接",
+  "Open separately": "在新窗口打开",
+  "Loading Agent workspace…": "正在加载 Agent 工作区…"
 }
