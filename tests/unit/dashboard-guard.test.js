@@ -226,6 +226,31 @@ describe("dashboard guard local-only access", () => {
     mocks.verifyDashboardAuthToken.mockResolvedValue(false);
   });
 
+  it("does not disclose a harness launch credential without dashboard authentication", async () => {
+    const response = await proxy(localRequest("/api/harness", {
+      host: "127.0.0.1:20228",
+    }));
+    expect(response.status).toBe(403);
+  });
+
+  it("allows the local harness connection when login is disabled", async () => {
+    mocks.getSettings.mockResolvedValue({ requireLogin: false });
+    expect(await proxy(localRequest("/api/harness", {
+      host: "127.0.0.1:20228", origin: "http://127.0.0.1:20228",
+    }))).toBe(mocks.nextResponse);
+  });
+
+  it("rejects remote and cross-site harness connection requests even with login disabled", async () => {
+    mocks.getSettings.mockResolvedValue({ requireLogin: false });
+    for (const req of [
+      request("/api/harness", { host: "remote.example" }),
+      localRequest("/api/harness", { origin: "https://remote.example" }),
+      localRequest("/api/harness", { "x-ar-via-proxy": "1" }),
+    ]) {
+      expect((await proxy(req)).status).toBe(403);
+    }
+  });
+
   it("rejects local-only route from non-loopback host without CLI token", async () => {
     const response = await proxy(request("/api/mcp/filesystem/sse", {
       host: "router.example.com",

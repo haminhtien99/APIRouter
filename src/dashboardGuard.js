@@ -69,6 +69,7 @@ const PROTECTED_API_PATHS = [
 
 // Routes that spawn child processes or read host secrets — restrict to localhost.
 const LOCAL_ONLY_PATHS = [
+  "/api/harness",
   "/api/cli-tools/cowork-settings",
   "/api/cli-tools/antigravity-mitm",
   "/api/mcp/",

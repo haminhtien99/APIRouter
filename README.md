@@ -30,6 +30,10 @@ npm link
 
 The link points to this checkout. After changing the source, run `npm run local:build` again; you do not need to repeat `npm link` unless you move the project.
 
+## Agent workspace
+
+Open **Agent** in the Dashboard to use DeepSeek Harness sessions, workspace files, terminal tools and approval flows with APIRouter models and combos. Start its local runtime with `npm run harness:web` from this checkout and keep that terminal open. See [Agent workspace setup](docs/harness-web.md) for the harness build, provider configuration and custom paths.
+
 ## Update an installation
 
 Each installation follows a Git branch. After new changes are available on that branch, stop APIRouter on the computer you want to update, then run:
