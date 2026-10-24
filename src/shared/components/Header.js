@@ -76,6 +76,13 @@ const getPageInfo = (pathname) => {
       icon: "dns",
       breadcrumbs: [],
     };
+  if (pathname === "/dashboard/agent")
+    return {
+      title: "Agent",
+      description: "Harness workspace with APIRouter models and combos",
+      icon: "smart_toy",
+      breadcrumbs: [],
+    };
   if (pathname.includes("/combos"))
     return {
       title: "Combos",
@@ -223,8 +230,10 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
       <div className="flex items-center gap-3 lg:hidden shrink-0">
         {showMenuButton && (
           <button
+            type="button"
             onClick={onMenuClick}
-            className="text-text-main hover:text-primary transition-colors"
+            className="text-text-main hover:text-primary transition-colors cursor-pointer"
+            aria-label="Open navigation menu"
           >
             <span className="material-symbols-outlined">menu</span>
           </button>

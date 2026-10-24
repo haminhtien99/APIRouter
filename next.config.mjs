@@ -1,5 +1,35 @@
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import os from "node:os";
+
+function getDevOrigins() {
+  const origins = new Set([
+    "127.0.0.1",
+    "0.0.0.0",
+    "localhost",
+    "192.168.0.111",
+    "192.168.*.*",
+    "10.*.*.*",
+    "172.*.*.*",
+  ]);
+  try {
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces)) {
+      for (const net of interfaces[name] || []) {
+        if (net && net.address) {
+          origins.add(net.address);
+        }
+      }
+    }
+  } catch {}
+  if (process.env.ALLOWED_DEV_ORIGINS) {
+    for (const origin of process.env.ALLOWED_DEV_ORIGINS.split(",")) {
+      if (origin.trim()) origins.add(origin.trim());
+    }
+  }
+  return Array.from(origins);
+}
+
 
 const projectRoot = dirname(fileURLToPath(import.meta.url));
 // CLI bundling needs workspace root so tracing includes hoisted node_modules (slim ~50MB).
@@ -11,6 +41,7 @@ const proxyClientMaxBodySize = process.env.APIROUTER_PROXY_CLIENT_MAX_BODY_SIZE 
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  allowedDevOrigins: getDevOrigins(),
   distDir: process.env.NEXT_DIST_DIR || ".next",
   output: "standalone",
   // `open` must stay external. It derives its own directory from `import.meta.url`, and

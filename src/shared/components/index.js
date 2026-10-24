@@ -41,5 +41,4 @@ export { default as CapacityBadges } from "./CapacityBadges";
 
 // Layouts
 export * from "./layouts";
-
-
+export { default as PanelLeftIcon } from "./icons/PanelLeftIcon";

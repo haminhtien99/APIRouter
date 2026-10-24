@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { useNotificationStore } from "@/store/notificationStore";
+import useSidebarStore from "@/store/sidebarStore";
 import Sidebar from "../Sidebar";
 import Header from "../Header";
 
@@ -34,8 +35,27 @@ function getToastStyle(type) {
 export default function DashboardLayout({ children }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const pathname = usePathname();
+  const fullHeight = ["/dashboard/basic-chat", "/dashboard/agent"].includes(pathname);
   const notifications = useNotificationStore((state) => state.notifications);
   const removeNotification = useNotificationStore((state) => state.removeNotification);
+  const toggleSidebar = useSidebarStore((state) => state.toggleSidebar);
+
+  // Keyboard shortcut Ctrl+B / Cmd+B to toggle sidebar (inspired by harness & VS Code)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key?.toLowerCase() === "b") {
+        const target = e.target;
+        const tagName = target?.tagName?.toLowerCase();
+        const isInput = tagName === "input" || tagName === "textarea" || target?.isContentEditable;
+        if (!isInput) {
+          e.preventDefault();
+          toggleSidebar();
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [toggleSidebar]);
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-bg">
@@ -57,7 +77,7 @@ export default function DashboardLayout({ children }) {
                   <button
                     type="button"
                     onClick={() => removeNotification(n.id)}
-                    className="text-current/70 hover:text-current"
+                    className="text-current/70 hover:text-current cursor-pointer"
                     aria-label="Dismiss notification"
                   >
                     <span className="material-symbols-outlined text-[16px]">close</span>
@@ -77,7 +97,7 @@ export default function DashboardLayout({ children }) {
       )}
 
       {/* Sidebar - Desktop */}
-      <div className="hidden lg:flex">
+      <div className="hidden lg:flex shrink-0 h-full relative z-30">
         <Sidebar />
       </div>
 
@@ -87,7 +107,7 @@ export default function DashboardLayout({ children }) {
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <Sidebar onClose={() => setSidebarOpen(false)} />
+        <Sidebar onClose={() => setSidebarOpen(false)} isMobile />
       </div>
 
       {/* Main content */}
@@ -95,8 +115,8 @@ export default function DashboardLayout({ children }) {
         {/* Faint grid background */}
         <div className="landing-grid absolute inset-0 pointer-events-none -z-10" aria-hidden="true" />
         <Header key={pathname} onMenuClick={() => setSidebarOpen(true)} />
-        <div className={`flex-1 overflow-y-auto custom-scrollbar ${pathname === "/dashboard/basic-chat" ? "" : "p-6 lg:p-10"} ${pathname === "/dashboard/basic-chat" ? "flex flex-col overflow-hidden" : ""}`}>
-          <div className={`${pathname === "/dashboard/basic-chat" ? "flex-1 w-full h-full flex flex-col" : "max-w-7xl mx-auto"}`}>{children}</div>
+        <div className={`min-h-0 flex-1 overflow-y-auto custom-scrollbar ${fullHeight ? "" : "p-6 lg:p-10"} ${fullHeight ? "flex flex-col overflow-hidden" : ""}`}>
+          <div className={`${fullHeight ? "min-h-0 flex-1 w-full h-full flex flex-col" : "max-w-7xl mx-auto"}`}>{children}</div>
         </div>
       </main>
     </div>
