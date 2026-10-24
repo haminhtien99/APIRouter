@@ -1,6 +1,6 @@
 {
   "name": "apirouter-app",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "APIRouter local AI account and provider gateway",
   "private": true,
   "bin": {
@@ -71,7 +71,7 @@
   "overrides": {
     "dompurify": "3.4.16"
   },
-  "comment_better_sqlite3": "kept in optionalDependencies so npm install doesn't fail on systems without build tools \u2014 sql.js is used as fallback at runtime",
+  "comment_better_sqlite3": "kept in optionalDependencies so npm install doesn't fail on systems without build tools — sql.js is used as fallback at runtime",
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.18",
     "eslint": "^9",
