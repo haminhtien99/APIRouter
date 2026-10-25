@@ -116,7 +116,7 @@ if (process.env.APIROUTER_INSTALL_OPTIONAL_RUNTIME === "1") {
 // Configuration constants
 const APP_NAME = pkg.name; // Use from package.json
 const DEFAULT_PORT = 20228;
-const DEFAULT_HOST = "127.0.0.1";
+const DEFAULT_HOST = "0.0.0.0";
 
 // First non-internal IPv4 — the address remote peers actually reach when bound to 0.0.0.0.
 function getLanIp() {
@@ -130,7 +130,7 @@ function getLanIp() {
 
 // Local URL stays "localhost"; warn separately when bound to all interfaces (network-exposed).
 function getDisplayHost() {
-  return host === DEFAULT_HOST ? "localhost" : host;
+  return (host === DEFAULT_HOST || host === "0.0.0.0" || host === "127.0.0.1") ? "localhost" : host;
 }
 const MAX_PORT_ATTEMPTS = 10;
 // Identifiers for killAllAppProcesses - only kill APIRouter specifically

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { DATA_DIR } from "@/lib/dataDir";
 import { harnessStateFile, runtimeStatus } from "@/lib/harness/runtime.mjs";
+import { startHarnessService, stopHarnessService, getHarnessStatus } from "@/lib/harness/service.js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,7 +10,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request) {
   const headers = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" };
   try {
-    const state = await runtimeStatus(harnessStateFile(DATA_DIR));
+    const state = await getHarnessStatus();
     if (state.launchUrl) {
       const url = new URL(state.launchUrl);
       const hostname = new URL(`http://${request.headers.get("host")}`).hostname;
@@ -26,5 +27,29 @@ export async function GET(request) {
       status: "unavailable",
       error: "Cannot read the harness connection. Check the launcher terminal and state file permissions.",
     }, { status: 503, headers });
+  }
+}
+
+export async function POST(request) {
+  const headers = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" };
+  try {
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {}
+
+    const action = body?.action || "start";
+    if (action === "stop") {
+      const res = await stopHarnessService();
+      return NextResponse.json(res, { headers });
+    }
+
+    const res = await startHarnessService();
+    return NextResponse.json(res, { headers });
+  } catch (error) {
+    return NextResponse.json(
+      { status: "unavailable", error: error.message || "Failed to manage harness service." },
+      { status: 500, headers }
+    );
   }
 }

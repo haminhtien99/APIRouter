@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { getSettings } from "@/lib/localDb";
 import bcrypt from "bcryptjs";
 import { cookies } from "next/headers";
-import { setDashboardAuthCookie } from "@/lib/auth/dashboardSession";
+import { setDashboardAuthCookie, verifyLanAuthToken } from "@/lib/auth/dashboardSession";
+import { AUTH_COOKIE_NAMES } from "@/lib/auth/cookieNames";
 import { isOidcConfigured } from "@/lib/auth/oidc";
 import { isSamlConfigured } from "@/lib/auth/saml.js";
 import { checkLock, recordFail, recordSuccess, getClientIp } from "@/lib/auth/loginLimiter";
@@ -24,6 +25,25 @@ export async function POST(request) {
 
     const { password } = await request.json();
     const settings = await getSettings();
+    const isLocal = isLocalRequest(request);
+
+    if (!isLocal) {
+      if (!settings.lanSharingEnabled) {
+        return NextResponse.json(
+          { error: "LAN network sharing is disabled on this server." },
+          { status: 403, headers: NO_STORE_HEADERS }
+        );
+      }
+      const cookieStore = await cookies();
+      const lanToken = cookieStore.get(AUTH_COOKIE_NAMES.lanAuth)?.value;
+      const isLanVerified = await verifyLanAuthToken(lanToken);
+      if (!isLanVerified) {
+        return NextResponse.json(
+          { error: "LAN Hash Key verification is required before password login.", requireLanVerification: true },
+          { status: 403, headers: NO_STORE_HEADERS }
+        );
+      }
+    }
 
     // Default password is '123456' if not set
     const storedHash = settings.password;
@@ -52,8 +72,12 @@ export async function POST(request) {
 
       // Default password still in use on a remote client → force a password
       // change before the dashboard is exposed remotely (keeps local UX intact).
+      const cookieStore = await cookies();
+      const lanToken = cookieStore.get(AUTH_COOKIE_NAMES.lanAuth)?.value;
+      const isLanVerified = !isLocal ? await verifyLanAuthToken(lanToken) : true;
+
       const mustChangePassword =
-        !storedHash && !process.env.INITIAL_PASSWORD && !isLocalRequest(request);
+        !storedHash && !process.env.INITIAL_PASSWORD && !isLocal && !isLanVerified;
 
       if (mustChangePassword) {
         // Do NOT issue a session token: a fresh install's default password is
@@ -75,7 +99,6 @@ export async function POST(request) {
         );
       }
 
-      const cookieStore = await cookies();
       await setDashboardAuthCookie(cookieStore, request);
 
       return NextResponse.json({ success: true, mustChangePassword: false }, { headers: NO_STORE_HEADERS });

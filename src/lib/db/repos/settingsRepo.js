@@ -47,6 +47,8 @@ const DEFAULT_SETTINGS = {
   pxpipeAutoInstall: true,
   pxpipeMinChars: 25000,
   pxpipeTimeoutMs: 15000,
+  lanSharingEnabled: false,
+  lanAccessKey: "",
 };
 
 async function readRaw() {
@@ -68,6 +70,12 @@ export function mergeWithDefaults(raw) {
     "headroomCodeAware", "headroomKompress",
   ]) delete merged[key];
   return merged;
+}
+
+export function getEffectiveLanAccessKey(settings) {
+  if (process.env.LAN_ACCESS_KEY) return process.env.LAN_ACCESS_KEY;
+  if (process.env.APIROUTER_LAN_HASH_KEY) return process.env.APIROUTER_LAN_HASH_KEY;
+  return settings?.lanAccessKey || "";
 }
 
 export async function getSettings() {

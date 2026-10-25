@@ -179,6 +179,85 @@ export function applyHarnessThemePatch(targetDir = harnessDir) {
     }
   }
 
+  
+  // 4. Patch packages/bundle/web-app/lib/startup.js (allow 0.0.0.0 wildcard host)
+  const bundleStartupPath = join(targetDir, "packages/bundle/web-app/lib/startup.js");
+  if (existsSync(bundleStartupPath)) {
+    try {
+      let content = readFileSync(bundleStartupPath, "utf8");
+      if (content.includes("options.host !== void 0 && isWildcardHost(options.host)")) {
+        content = content.replace(
+          "options.host !== void 0 && isWildcardHost(options.host)",
+          "false /* [apirouter] allow 0.0.0.0 */ && options.host !== void 0"
+        );
+        writeFileSync(bundleStartupPath, content, "utf8");
+        console.log(`[patch-harness] Patched ${bundleStartupPath}`);
+        patchedCount++;
+      }
+    } catch (err) {
+      console.warn(`[patch-harness] Notice for bundle startup.js: ${err.message}`);
+    }
+  }
+
+  // 5. Patch packages/bundle/web-app/src/startup.ts (allow 0.0.0.0 wildcard host)
+  const bundleStartupTsPath = join(targetDir, "packages/bundle/web-app/src/startup.ts");
+  if (existsSync(bundleStartupTsPath)) {
+    try {
+      let content = readFileSync(bundleStartupTsPath, "utf8");
+      if (content.includes("options.host !== undefined && isWildcardHost(options.host)")) {
+        content = content.replace(
+          "options.host !== undefined && isWildcardHost(options.host)",
+          "false /* [apirouter] allow 0.0.0.0 */ && options.host !== undefined"
+        );
+        writeFileSync(bundleStartupTsPath, content, "utf8");
+        console.log(`[patch-harness] Patched ${bundleStartupTsPath}`);
+        patchedCount++;
+      }
+    } catch (err) {
+      console.warn(`[patch-harness] Notice for bundle startup.ts: ${err.message}`);
+    }
+  }
+
+  // 6. Patch packages/client/connection/lib/index.js (trust LAN IPs in isTrustedApiRequest)
+  const clientConnectionPath = join(targetDir, "packages/client/connection/lib/index.js");
+  if (existsSync(clientConnectionPath)) {
+    try {
+      let content = readFileSync(clientConnectionPath, "utf8");
+      const targetNeedle = "!isLoopbackHostname(hostUrl.hostname) && !isTrustedAuthority(hostUrl, trustedHosts, protocol)";
+      if (content.includes(targetNeedle) && !content.includes("isLan")) {
+        content = content.replace(
+          targetNeedle,
+          "(() => { const isLan = /^(10\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}|172\\.(1[6-9]|2\\d|3[01])\\.\\d{1,3}\\.\\d{1,3}|192\\.168\\.\\d{1,3}\\.\\d{1,3}|localhost|.*\\.local)$/.test(hostUrl.hostname); return !isLoopbackHostname(hostUrl.hostname) && !isLan && !isTrustedAuthority(hostUrl, trustedHosts, protocol); })()"
+        );
+        writeFileSync(clientConnectionPath, content, "utf8");
+        console.log(`[patch-harness] Patched ${clientConnectionPath}`);
+        patchedCount++;
+      }
+    } catch (err) {
+      console.warn(`[patch-harness] Notice for client connection lib: ${err.message}`);
+    }
+  }
+
+  // 7. Patch packages/client/connection/src/api-request-trust.ts
+  const apiTrustTsPath = join(targetDir, "packages/client/connection/src/api-request-trust.ts");
+  if (existsSync(apiTrustTsPath)) {
+    try {
+      let content = readFileSync(apiTrustTsPath, "utf8");
+      const targetTsNeedle = "!isLoopbackHostname(hostUrl.hostname)\n    && !isTrustedAuthority(hostUrl, trustedHosts, protocol)";
+      if (content.includes(targetTsNeedle) && !content.includes("isLan")) {
+        content = content.replace(
+          targetTsNeedle,
+          "(() => { const isLan = /^(10\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}|172\\.(1[6-9]|2\\d|3[01])\\.\\d{1,3}\\.\\d{1,3}|192\\.168\\.\\d{1,3}\\.\\d{1,3}|localhost|.*\\.local)$/.test(hostUrl.hostname); return !isLoopbackHostname(hostUrl.hostname) && !isLan && !isTrustedAuthority(hostUrl, trustedHosts, protocol); })()"
+        );
+        writeFileSync(apiTrustTsPath, content, "utf8");
+        console.log(`[patch-harness] Patched ${apiTrustTsPath}`);
+        patchedCount++;
+      }
+    } catch (err) {
+      console.warn(`[patch-harness] Notice for api-request-trust.ts: ${err.message}`);
+    }
+  }
+
   return patchedCount > 0;
 }
 

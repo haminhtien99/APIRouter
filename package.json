@@ -1,18 +1,18 @@
 {
   "name": "apirouter-app",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "APIRouter local AI account and provider gateway",
   "private": true,
   "bin": {
     "apirouter": "./apirouter"
   },
   "scripts": {
-    "dev": "next dev --port 20127",
-    "dev:webpack": "next dev --webpack --port 20127",
+    "dev": "next dev -H 0.0.0.0 --port 20127",
+    "dev:webpack": "next dev --webpack -H 0.0.0.0 --port 20127",
     "build": "next build --webpack",
     "postbuild": "node scripts/copy-standalone-assets.mjs",
     "postbuild:bun": "node scripts/copy-standalone-assets.mjs",
-    "start": "node custom-server.js --port 20127",
+    "start": "node custom-server.js -H 0.0.0.0 --port 20127",
     "bot:telegram": "node scripts/telegram-bot.mjs",
     "bot:telegram:codex:install": "node scripts/install-codex-telegram-hooks.mjs install",
     "bot:telegram:codex:uninstall": "node scripts/install-codex-telegram-hooks.mjs uninstall",
@@ -25,7 +25,7 @@
     "local:build": "npm --prefix cli run build",
     "update:check": "node scripts/update-checkout.mjs check",
     "update:local": "node scripts/update-checkout.mjs apply",
-    "start:cli": "node cli/cli.js --host 127.0.0.1 --skip-update",
+    "start:cli": "node cli/cli.js --host 0.0.0.0 --skip-update",
     "cli:pack": "npm --prefix cli run pack:cli",
     "cli:publish": "npm --prefix cli run publish:cli",
     "harness:web": "node scripts/harness-web.mjs",

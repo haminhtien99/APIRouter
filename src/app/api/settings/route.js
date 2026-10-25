@@ -1,3 +1,4 @@
+import os from "node:os";
 import { NextResponse } from "next/server";
 import { getSettings, updateSettings } from "@/lib/localDb";
 import { resetComboRotation } from "open-sse/services/combo.js";
@@ -19,6 +20,21 @@ const REMOVED_SETTING_KEYS = [
   "headroomCodeAware", "headroomKompress",
 ];
 
+function getLocalIpAddresses() {
+  const addresses = [];
+  try {
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces)) {
+      for (const net of interfaces[name] || []) {
+        if (net.family === "IPv4" && !net.internal) {
+          addresses.push(net.address);
+        }
+      }
+    }
+  } catch {}
+  return addresses;
+}
+
 export async function GET() {
   try {
     const settings = await getSettings();
@@ -32,7 +48,8 @@ export async function GET() {
       ...safeSettings, 
       enableRequestLogs,
       enableTranslator,
-      hasPassword: !!password
+      hasPassword: !!password,
+      lanAddresses: getLocalIpAddresses()
     }, { headers: SETTINGS_RESPONSE_HEADERS });
   } catch (error) {
     console.log("Error getting settings:", error);

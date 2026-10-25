@@ -1,5 +1,6 @@
 export const AUTH_COOKIE_NAMES = Object.freeze({
   dashboard: "apirouter_auth_token",
+  lanAuth: "apirouter_lan_token",
   oidcState: "apirouter_oidc_state",
   oidcNonce: "apirouter_oidc_nonce",
   oidcVerifier: "apirouter_oidc_code_verifier",

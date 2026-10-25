@@ -55,6 +55,12 @@ export default function ProfilePage() {
   
   // SAML State
   const [ssoTypeTab, setSsoTypeTab] = useState("saml");
+  const [lanSharingEnabled, setLanSharingEnabled] = useState(false);
+  const [lanAccessKey, setLanAccessKey] = useState("");
+  const [lanAddresses, setLanAddresses] = useState([]);
+  const [showLanKey, setShowLanKey] = useState(false);
+  const [lanLoading, setLanLoading] = useState(false);
+  const [lanStatus, setLanStatus] = useState({ type: "", message: "" });
   const [samlForm, setSamlForm] = useState({
     samlEntryPoint: "",
     samlIssuer: "urn:apirouter:sp",
@@ -92,6 +98,9 @@ export default function ProfilePage() {
         });
         setOidcClientSecret("");
         setSsoTypeTab(data?.ssoType || "saml");
+        setLanSharingEnabled(Boolean(data?.lanSharingEnabled));
+        setLanAccessKey(data?.lanAccessKey || "");
+        setLanAddresses(Array.isArray(data?.lanAddresses) ? data.lanAddresses : []);
         setSamlForm({
           samlEntryPoint: data?.samlEntryPoint || "",
           samlIssuer: data?.samlIssuer || "urn:apirouter:sp",
@@ -115,6 +124,58 @@ export default function ProfilePage() {
         setLoading(false);
       });
   }, []);
+
+  const generateLanKey = () => {
+    const chars = "abcdef0123456789";
+    let key = "ar_lan_";
+    for (let i = 0; i < 16; i++) {
+      key += chars[Math.floor(Math.random() * chars.length)];
+    }
+    setLanAccessKey(key);
+  };
+
+  const handleSaveLanSettings = async (enabled = lanSharingEnabled, key = lanAccessKey) => {
+    setLanLoading(true);
+    setLanStatus({ type: "", message: "" });
+
+    let finalKey = key.trim();
+    if (enabled && !finalKey) {
+      const chars = "abcdef0123456789";
+      finalKey = "ar_lan_";
+      for (let i = 0; i < 16; i++) {
+        finalKey += chars[Math.floor(Math.random() * chars.length)];
+      }
+      setLanAccessKey(finalKey);
+    }
+
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lanSharingEnabled: enabled,
+          lanAccessKey: finalKey,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        setSettings((prev) => ({ ...prev, ...data }));
+        setLanSharingEnabled(Boolean(data.lanSharingEnabled));
+        setLanAccessKey(data.lanAccessKey || "");
+        setLanStatus({
+          type: "success",
+          message: enabled ? "Đã lưu cài đặt chia sẻ mạng LAN" : "Đã tắt chia sẻ mạng LAN",
+        });
+      } else {
+        setLanStatus({ type: "error", message: data.error || "Không thể lưu cài đặt mạng LAN" });
+      }
+    } catch {
+      setLanStatus({ type: "error", message: "Đã xảy ra lỗi khi lưu cài đặt" });
+    } finally {
+      setLanLoading(false);
+    }
+  };
 
   const handlePasswordChange = async (e) => {
     e.preventDefault();
@@ -1322,6 +1383,161 @@ export default function ProfilePage() {
               )}
             </div>
           )}
+        </Card>
+
+        {/* LAN Network Sharing & Security */}
+        <Card>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-2 rounded-lg bg-teal-500/10 text-teal-500 shrink-0">
+              <span className="material-symbols-outlined text-[20px]">hub</span>
+            </div>
+            <div>
+              <h3 className="text-base sm:text-lg font-semibold">LAN Network Sharing & Security</h3>
+              <p className="text-xs text-text-muted">
+                Chia sẻ APIRouter & DeepSeek Harness cho các máy khác trong cùng mạng Wi-Fi / LAN
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-4">
+            <div className="flex items-start sm:items-center justify-between gap-4">
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-sm sm:text-base">Cho phép truy cập qua mạng LAN</p>
+                <p className="text-xs sm:text-sm text-text-muted">
+                  Bật xác minh 2 bước (Hash Key + Mật khẩu) trước khi cho phép thiết bị khác kết nối
+                </p>
+              </div>
+              <Toggle
+                checked={lanSharingEnabled}
+                onChange={() => {
+                  const next = !lanSharingEnabled;
+                  setLanSharingEnabled(next);
+                  handleSaveLanSettings(next, lanAccessKey);
+                }}
+                disabled={loading || lanLoading}
+              />
+            </div>
+
+            {lanSharingEnabled && (
+              <div className="flex flex-col gap-4 pt-3 border-t border-border/50">
+                {/* Hash Key Field */}
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <label className="font-medium text-sm sm:text-base">
+                      LAN Hash Key (Khóa xác minh Bước 1)
+                    </label>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={generateLanKey}
+                        disabled={loading || lanLoading}
+                      >
+                        <span className="material-symbols-outlined text-[16px]">autorenew</span>
+                        Tạo khóa mới
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="relative flex items-center">
+                    <Input
+                      type={showLanKey ? "text" : "password"}
+                      placeholder="ar_lan_..."
+                      value={lanAccessKey}
+                      onChange={(e) => setLanAccessKey(e.target.value)}
+                      disabled={loading || lanLoading}
+                      className="w-full"
+                      inputClassName="pr-20 font-mono text-xs sm:text-sm"
+                    />
+                    <div className="absolute right-2 flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setShowLanKey(!showLanKey)}
+                        className="p-1.5 text-text-muted hover:text-text-main transition-colors cursor-pointer"
+                        title={showLanKey ? "Ẩn khóa" : "Hiện khóa"}
+                      >
+                        <span className="material-symbols-outlined text-[18px]">
+                          {showLanKey ? "visibility_off" : "visibility"}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (lanAccessKey) {
+                            navigator.clipboard.writeText(lanAccessKey);
+                            setLanStatus({ type: "success", message: "Đã sao chép Hash Key vào clipboard!" });
+                          }
+                        }}
+                        className="p-1.5 text-text-muted hover:text-text-main transition-colors cursor-pointer"
+                        title="Sao chép khóa"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">content_copy</span>
+                      </button>
+                    </div>
+                  </div>
+                  <p className="text-xs text-text-muted">
+                    Khóa bảo mật này bắt buộc người dùng trên mạng LAN phải nhập chính xác trước khi xuất hiện màn hình đăng nhập tài khoản.
+                  </p>
+                </div>
+
+                {/* Connection Addresses Box */}
+                <div className="p-3.5 rounded-xl border border-border/60 bg-surface-2 flex flex-col gap-2.5">
+                  <p className="text-xs font-semibold text-text-main flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-base text-primary">link</span>
+                    Địa chỉ kết nối từ máy khác trong cùng Wi-Fi / LAN:
+                  </p>
+
+                  <div className="flex flex-col gap-1.5">
+                    {(lanAddresses.length > 0 ? lanAddresses : [typeof window !== "undefined" ? window.location.hostname : "192.168.0.111"]).map((ip) => {
+                      const port = typeof window !== "undefined" && window.location.port ? window.location.port : "20127";
+                      const url = `http://${ip}:${port}`;
+                      return (
+                        <div key={ip} className="flex items-center justify-between gap-2 p-2 rounded-lg bg-bg border border-border/50 text-xs font-mono">
+                          <code className="text-primary truncate">{url}</code>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              navigator.clipboard.writeText(url);
+                              setLanStatus({ type: "success", message: `Đã sao chép URL ${url}!` });
+                            }}
+                          >
+                            <span className="material-symbols-outlined text-[16px]">content_copy</span>
+                            Copy URL
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="text-[11px] text-text-muted leading-relaxed pt-1 border-t border-border/40">
+                    <p className="font-medium text-text-main mb-0.5">Quy trình kết nối 2 bước:</p>
+                    <p>1. Mở URL trên từ máy khác → Nhập <b>LAN Hash Key</b> để vượt qua cổng kiểm tra.</p>
+                    <p>2. Nhập mật khẩu đăng nhập APIRouter → Toàn quyền sử dụng Dashboard và <b>DeepSeek Harness Agent</b>.</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <Button
+                    type="button"
+                    variant="primary"
+                    loading={lanLoading}
+                    onClick={() => handleSaveLanSettings(lanSharingEnabled, lanAccessKey)}
+                  >
+                    Lưu cấu hình mạng LAN
+                  </Button>
+                </div>
+
+                {lanStatus.message && (
+                  <p className={`text-xs ${lanStatus.type === "error" ? "text-red-500" : "text-green-500"}`}>
+                    {lanStatus.message}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
         </Card>
 
         {/* Routing Preferences */}

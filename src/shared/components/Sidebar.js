@@ -35,27 +35,31 @@ const debugItems = [
   { href: "/dashboard/translator", label: "Translator", icon: "translate" },
 ];
 
-const systemItems = [];
-
-export default function Sidebar({ onClose, isMobile = false }) {
+export default function Sidebar({ onClose, isMobile = false, initialCollapsed = false }) {
   const pathname = usePathname();
   const isCollapsedStore = useSidebarStore((s) => s.isCollapsed);
+  const isHydrated = useSidebarStore((s) => s.isHydrated);
+  const isAnimating = useSidebarStore((s) => s.isAnimating);
   const toggleSidebar = useSidebarStore((s) => s.toggleSidebar);
-  const [mounted, setMounted] = useState(false);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  const isCollapsed = isMobile ? false : (mounted ? isCollapsedStore : false);
+  // Before hydration, use initialCollapsed from cookie so SSR matches client 100%.
+  // After hydration, follow the client store.
+  const isCollapsed = isMobile
+    ? false
+    : (isHydrated ? isCollapsedStore : (initialCollapsed || isCollapsedStore));
 
   const [mediaOpen, setMediaOpen] = useState(false);
   const [mediaFlyoutOpen, setMediaFlyoutOpen] = useState(false);
   const [mediaFlyoutPos, setMediaFlyoutPos] = useState(null);
   const [updateInfo, setUpdateInfo] = useState(null);
   const [enableTranslator, setEnableTranslator] = useState(false);
+  const [portalReady, setPortalReady] = useState(false);
   const mediaFlyoutRef = useRef(null);
   const mediaBtnRef = useRef(null);
+
+  useEffect(() => {
+    setPortalReady(true);
+  }, []);
 
   useEffect(() => {
     fetch("/api/settings")
@@ -64,7 +68,7 @@ export default function Sidebar({ onClose, isMobile = false }) {
       .catch(() => {});
   }, []);
 
-  // The checkout updates through Git; show the command when its tracked branch advances.
+  // Check for updates
   useEffect(() => {
     let checkMounted = true;
     const check = (refresh = false) => {
@@ -135,15 +139,19 @@ export default function Sidebar({ onClose, isMobile = false }) {
 
   return (
     <aside
+      data-sidebar="true"
+      suppressHydrationWarning
       className={cn(
-        "flex flex-col border-r border-border-subtle bg-vibrancy backdrop-blur-xl transition-[width] duration-300 ease-in-out min-h-full shrink-0 select-none overflow-hidden",
+        "flex flex-col border-r border-border-subtle bg-vibrancy backdrop-blur-xl min-h-full shrink-0 select-none overflow-hidden",
+        isAnimating && "transition-[width] duration-300 ease-in-out",
         isCollapsed ? "w-16" : "w-72"
       )}
     >
-      {/* Top Header / Traffic lights & Toggle */}
+      {/* 1. Top Header: Traffic lights & Sidebar Toggle (Always rendered, never disappears) */}
       <div
         className={cn(
-          "flex items-center transition-all duration-300",
+          "flex items-center",
+          isAnimating && "transition-all duration-300",
           isCollapsed ? "flex-col gap-2 pt-3.5 pb-2 px-2" : "justify-between pt-4 pb-1 px-5"
         )}
       >
@@ -164,7 +172,7 @@ export default function Sidebar({ onClose, isMobile = false }) {
               onClick={toggleSidebar}
               className={cn(
                 "rounded-lg text-text-muted hover:text-text-main hover:bg-surface-2 transition-colors cursor-pointer",
-                isCollapsed ? "size-8 flex items-center justify-center" : "p-1.5"
+                isCollapsed ? "size-9 flex items-center justify-center" : "p-1.5"
               )}
               aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
@@ -185,59 +193,72 @@ export default function Sidebar({ onClose, isMobile = false }) {
         )}
       </div>
 
-      {/* Logo & Brand */}
-      {isCollapsed ? (
-        <div className="px-2 py-2 flex flex-col items-center">
-          <Tooltip text="APIRouter" position="right" className="flex justify-center">
-            <Link
-              href="/dashboard"
-              onClick={isMobile ? onClose : undefined}
-              className="relative flex items-center justify-center size-9 rounded-[10px] bg-gradient-to-br from-brand-500 to-brand-700 shadow-[var(--shadow-warm)] text-white hover:scale-105 transition-transform cursor-pointer"
-              aria-label="APIRouter"
-            >
+      {/* 2. Logo & Brand: Unified container (Logo icon ALWAYS visible, text fades smoothly) */}
+      <div
+        className={cn(
+          "py-2 overflow-hidden",
+          isAnimating && "transition-all duration-300",
+          isCollapsed ? "px-2 flex justify-center" : "px-5"
+        )}
+      >
+        <Tooltip
+          text="APIRouter"
+          position="right"
+          disabled={!isCollapsed}
+          className={isCollapsed ? "flex justify-center" : "w-full"}
+        >
+          <Link
+            href="/dashboard"
+            onClick={isMobile ? onClose : undefined}
+            className={cn(
+              "flex items-center rounded-[10px] group",
+              isCollapsed ? "justify-center size-9" : "gap-3 w-full"
+            )}
+            aria-label="APIRouter"
+          >
+            {/* The Gradient Logo Box - ALWAYS visible */}
+            <div className="relative flex items-center justify-center size-9 rounded-[10px] bg-gradient-to-br from-brand-500 to-brand-700 shadow-[var(--shadow-warm)] text-white shrink-0 group-hover:scale-105 transition-transform">
               <span className="material-symbols-outlined text-[20px]">hub</span>
               {updateInfo && (
                 <span className="absolute -top-1 -right-1 size-2.5 rounded-full bg-amber-500 ring-2 ring-surface" />
               )}
-            </Link>
-          </Tooltip>
-        </div>
-      ) : (
-        <div className="px-5 py-3 flex flex-col gap-2">
-          <Link href="/dashboard" onClick={isMobile ? onClose : undefined} className="flex items-center gap-3 group">
-            <div className="flex items-center justify-center size-9 rounded-[10px] bg-gradient-to-br from-brand-500 to-brand-700 shadow-[var(--shadow-warm)] shrink-0 group-hover:scale-105 transition-transform">
-              <span className="material-symbols-outlined text-white text-[20px]">hub</span>
             </div>
-            <div className="flex flex-col min-w-0">
-              <h1 className="text-lg font-semibold tracking-tight text-text-main truncate">
-                {APP_CONFIG.name}
-              </h1>
-              <span className="text-xs text-text-muted">v{APP_CONFIG.version}</span>
-            </div>
+
+            {/* Brand text: only shown when expanded */}
+            {!isCollapsed && (
+              <div className="flex flex-col min-w-0 overflow-hidden whitespace-nowrap">
+                <h1 className="text-lg font-semibold tracking-tight text-text-main truncate">
+                  {APP_CONFIG.name}
+                </h1>
+                <span className="text-xs text-text-muted">v{APP_CONFIG.version}</span>
+              </div>
+            )}
           </Link>
-          {updateInfo && (
-            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs" role="status">
-              <p className="font-semibold text-amber-600 dark:text-amber-400">
-                {updateInfo.latestVersion === updateInfo.currentVersion
-                  ? "New APIRouter commits available"
-                  : `APIRouter v${updateInfo.latestVersion} available`}
-              </p>
-              <p className="mt-1 text-text-muted">
-                Current: v{updateInfo.currentVersion}
-                {updateInfo.latestVersion === updateInfo.currentVersion ? ` · New: ${updateInfo.latestCommit}` : ""}
-              </p>
-              <p className="mt-2 text-text-main">Exit APIRouter, then run in a terminal:</p>
-              <code className="mt-1 block rounded bg-black/10 px-2 py-1 font-mono text-text-main dark:bg-white/10">apirouter update</code>
-              <p className="mt-1 text-text-muted">Without npm link: run ./apirouter update in the project folder.</p>
-              {updateInfo.hasLocalChanges && (
-                <p className="mt-2 text-amber-600 dark:text-amber-400">Commit or stash local changes first.</p>
-              )}
-            </div>
+        </Tooltip>
+      </div>
+
+      {/* Update banner when expanded */}
+      {!isCollapsed && updateInfo && (
+        <div className="mx-5 mb-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs" role="status">
+          <p className="font-semibold text-amber-600 dark:text-amber-400">
+            {updateInfo.latestVersion === updateInfo.currentVersion
+              ? "New APIRouter commits available"
+              : `APIRouter v${updateInfo.latestVersion} available`}
+          </p>
+          <p className="mt-1 text-text-muted">
+            Current: v{updateInfo.currentVersion}
+            {updateInfo.latestVersion === updateInfo.currentVersion ? ` · New: ${updateInfo.latestCommit}` : ""}
+          </p>
+          <p className="mt-2 text-text-main">Exit APIRouter, then run in a terminal:</p>
+          <code className="mt-1 block rounded bg-black/10 px-2 py-1 font-mono text-text-main dark:bg-white/10">apirouter update</code>
+          <p className="mt-1 text-text-muted">Without npm link: run ./apirouter update in the project folder.</p>
+          {updateInfo.hasLocalChanges && (
+            <p className="mt-2 text-amber-600 dark:text-amber-400">Commit or stash local changes first.</p>
           )}
         </div>
       )}
 
-      {/* Navigation list */}
+      {/* 3. Navigation List (Unified elements: icons ALWAYS visible in both modes) */}
       <nav
         className={cn(
           "flex-1 py-2 space-y-1 overflow-y-auto overflow-x-hidden custom-scrollbar",
@@ -256,7 +277,7 @@ export default function Sidebar({ onClose, isMobile = false }) {
               href={item.href}
               onClick={isMobile ? onClose : undefined}
               className={cn(
-                "flex items-center rounded-lg transition-all group",
+                "flex items-center rounded-lg group transition-colors",
                 isCollapsed
                   ? "justify-center size-9 mx-auto"
                   : "gap-3 px-3 py-1.5 w-full",
@@ -274,188 +295,158 @@ export default function Sidebar({ onClose, isMobile = false }) {
               >
                 {item.icon}
               </span>
-              {!isCollapsed && <span className="text-[13px] font-medium truncate">{translate(item.label)}</span>}
+              {!isCollapsed && (
+                <span className="text-[13px] font-medium truncate">
+                  {translate(item.label)}
+                </span>
+              )}
             </Link>
           </Tooltip>
         ))}
 
-        {/* Divider or System Header */}
-        {isCollapsed ? (
-          <div className="w-8 h-px bg-border-subtle my-2 mx-auto" />
-        ) : (
-          <div className="pt-3 mt-2 space-y-0.5">
-            <p className="px-4 text-xs font-semibold text-text-muted/60 uppercase tracking-wider mb-2">
+        {/* 4. System Section Divider */}
+        <div className="pt-2 mt-2 border-t border-border-subtle/70">
+          {!isCollapsed && (
+            <p className="px-3 text-xs font-semibold text-text-muted/60 uppercase tracking-wider mb-1.5">
               System
             </p>
-          </div>
-        )}
+          )}
+        </div>
 
-        {/* Media Providers (Accordion when wide, Flyout popover when rail) */}
-        {isCollapsed ? (
-          <div className="relative flex justify-center w-full">
-            <Tooltip
-              text={translate("Media Providers")}
-              position="right"
-              disabled={mediaFlyoutOpen}
-              className="flex justify-center w-full"
-            >
-              <button
-                ref={mediaBtnRef}
-                type="button"
-                onClick={toggleMediaFlyout}
-                className={cn(
-                  "flex items-center justify-center size-9 rounded-lg transition-all cursor-pointer",
-                  isMediaActive
-                    ? "bg-primary/10 text-primary"
-                    : "text-text-muted hover:bg-surface-2 hover:text-text-main"
-                )}
-                aria-label="Media Providers"
-                aria-haspopup="menu"
-                aria-expanded={mediaFlyoutOpen}
-              >
-                <span className="material-symbols-outlined text-[18px]">perm_media</span>
-              </button>
-            </Tooltip>
-
-            {/* Flyout popup rendered via portal so it floats above everything */}
-            {mounted && mediaFlyoutOpen && mediaFlyoutPos && typeof document !== "undefined" && createPortal(
-              <div
-                ref={mediaFlyoutRef}
-                className="fixed z-[9998] w-52 rounded-xl border border-border-subtle bg-surface/95 backdrop-blur-xl p-1.5 shadow-2xl animate-in fade-in zoom-in-95 duration-100"
-                style={{
-                  top: `${mediaFlyoutPos.top}px`,
-                  left: `${mediaFlyoutPos.left}px`,
-                }}
-              >
-                <div className="px-2 py-1 text-[11px] font-semibold text-text-muted/70 uppercase tracking-wider">
-                  Media Providers
-                </div>
-                {MEDIA_PROVIDER_KINDS.filter((k) => VISIBLE_MEDIA_KINDS.includes(k.id)).map((kind) => (
-                  <Link
-                    key={kind.id}
-                    href={`/dashboard/media-providers/${kind.id}`}
-                    onClick={() => setMediaFlyoutOpen(false)}
-                    className={cn(
-                      "flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs transition-colors",
-                      pathname.startsWith(`/dashboard/media-providers/${kind.id}`)
-                        ? "bg-primary/10 text-primary font-medium"
-                        : "text-text-muted hover:bg-surface-2 hover:text-text-main"
-                    )}
-                  >
-                    <span className="material-symbols-outlined text-[16px]">{kind.icon}</span>
-                    <span>{kind.label}</span>
-                  </Link>
-                ))}
-                <Link
-                  href={COMBINED_WEB_ITEM.href}
-                  onClick={() => setMediaFlyoutOpen(false)}
-                  className={cn(
-                    "flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs transition-colors",
-                    pathname.startsWith(COMBINED_WEB_ITEM.href)
-                      ? "bg-primary/10 text-primary font-medium"
-                      : "text-text-muted hover:bg-surface-2 hover:text-text-main"
-                  )}
-                >
-                  <span className="material-symbols-outlined text-[16px]">{COMBINED_WEB_ITEM.icon}</span>
-                  <span>{COMBINED_WEB_ITEM.label}</span>
-                </Link>
-              </div>,
-              document.body
-            )}
-          </div>
-        ) : (
-          <>
+        {/* 5. Media Providers: Unified button (Icon ALWAYS visible) */}
+        <div className={cn("relative", isCollapsed ? "flex justify-center w-full" : "flex flex-col")}>
+          <Tooltip
+            text={translate("Media Providers")}
+            position="right"
+            disabled={!isCollapsed || mediaFlyoutOpen}
+            className={isCollapsed ? "flex justify-center w-full" : "inline-flex w-full"}
+          >
             <button
+              ref={mediaBtnRef}
               type="button"
-              onClick={() => setMediaOpen((v) => !v)}
+              onClick={() => {
+                if (isCollapsed) {
+                  toggleMediaFlyout();
+                } else {
+                  setMediaOpen((v) => !v);
+                }
+              }}
               className={cn(
-                "w-full flex items-center gap-3 px-3 py-1.5 rounded-lg transition-all group cursor-pointer",
+                "flex items-center rounded-lg group cursor-pointer transition-colors",
+                isCollapsed
+                  ? "justify-center size-9 mx-auto"
+                  : "gap-3 px-3 py-1.5 w-full",
                 isMediaActive
                   ? "bg-primary/10 text-primary"
                   : "text-text-muted hover:bg-surface-2 hover:text-text-main"
               )}
+              aria-label="Media Providers"
+              aria-haspopup={isCollapsed ? "menu" : undefined}
+              aria-expanded={isCollapsed ? mediaFlyoutOpen : mediaOpen}
             >
-              <span className="material-symbols-outlined text-[18px]">perm_media</span>
-              <span className="text-[13px] font-medium flex-1 text-left">Media Providers</span>
-              <span
-                className="material-symbols-outlined text-[14px] transition-transform"
-                style={{ transform: mediaOpen ? "rotate(180deg)" : "rotate(0deg)" }}
-              >
-                expand_more
+              <span className="material-symbols-outlined shrink-0 text-[18px]">
+                perm_media
               </span>
-            </button>
-            {mediaOpen && (
-              <div className="pl-4 space-y-0.5">
-                {MEDIA_PROVIDER_KINDS.filter((k) => VISIBLE_MEDIA_KINDS.includes(k.id)).map((kind) => (
-                  <Link
-                    key={kind.id}
-                    href={`/dashboard/media-providers/${kind.id}`}
-                    onClick={isMobile ? onClose : undefined}
-                    className={cn(
-                      "flex items-center gap-3 px-4 py-1 rounded-lg transition-all group",
-                      pathname.startsWith(`/dashboard/media-providers/${kind.id}`)
-                        ? "bg-primary/10 text-primary"
-                        : "text-text-muted hover:bg-surface-2 hover:text-text-main"
-                    )}
+              {!isCollapsed && (
+                <>
+                  <span className="text-[13px] font-medium flex-1 text-left truncate">
+                    {translate("Media Providers")}
+                  </span>
+                  <span
+                    className="material-symbols-outlined text-[14px] transition-transform"
+                    style={{ transform: mediaOpen ? "rotate(180deg)" : "rotate(0deg)" }}
                   >
-                    <span className="material-symbols-outlined text-[16px]">{kind.icon}</span>
-                    <span className="text-sm">{kind.label}</span>
-                  </Link>
-                ))}
+                    expand_more
+                  </span>
+                </>
+              )}
+            </button>
+          </Tooltip>
+
+          {/* Expanded mode accordion sub-items */}
+          {!isCollapsed && mediaOpen && (
+            <div className="pl-4 space-y-0.5 mt-0.5">
+              {MEDIA_PROVIDER_KINDS.filter((k) => VISIBLE_MEDIA_KINDS.includes(k.id)).map((kind) => (
                 <Link
-                  key={COMBINED_WEB_ITEM.id}
-                  href={COMBINED_WEB_ITEM.href}
+                  key={kind.id}
+                  href={`/dashboard/media-providers/${kind.id}`}
                   onClick={isMobile ? onClose : undefined}
                   className={cn(
-                    "flex items-center gap-3 px-4 py-1 rounded-lg transition-all group",
-                    pathname.startsWith(COMBINED_WEB_ITEM.href)
+                    "flex items-center gap-3 px-4 py-1 rounded-lg transition-colors",
+                    pathname.startsWith(`/dashboard/media-providers/${kind.id}`)
                       ? "bg-primary/10 text-primary"
                       : "text-text-muted hover:bg-surface-2 hover:text-text-main"
                   )}
                 >
-                  <span className="material-symbols-outlined text-[16px]">{COMBINED_WEB_ITEM.icon}</span>
-                  <span className="text-sm">{COMBINED_WEB_ITEM.label}</span>
+                  <span className="material-symbols-outlined text-[16px]">{kind.icon}</span>
+                  <span className="text-sm">{kind.label}</span>
                 </Link>
-              </div>
-            )}
-          </>
-        )}
-
-        {systemItems.map((item) => (
-          <Tooltip
-            key={item.href}
-            text={translate(item.label)}
-            position="right"
-            disabled={!isCollapsed}
-            className={isCollapsed ? "flex justify-center w-full" : "inline-flex w-full"}
-          >
-            <Link
-              href={item.href}
-              onClick={isMobile ? onClose : undefined}
-              className={cn(
-                "flex items-center rounded-lg transition-all group",
-                isCollapsed
-                  ? "justify-center size-9 mx-auto"
-                  : "gap-3 px-3 py-1.5 w-full",
-                isActive(item.href)
-                  ? "bg-primary/10 text-primary"
-                  : "text-text-muted hover:bg-surface-2 hover:text-text-main"
-              )}
-            >
-              <span
+              ))}
+              <Link
+                key={COMBINED_WEB_ITEM.id}
+                href={COMBINED_WEB_ITEM.href}
+                onClick={isMobile ? onClose : undefined}
                 className={cn(
-                  "material-symbols-outlined shrink-0 text-[18px]",
-                  isActive(item.href) ? "fill-1" : "group-hover:text-primary transition-colors"
+                  "flex items-center gap-3 px-4 py-1 rounded-lg transition-colors",
+                  pathname.startsWith(COMBINED_WEB_ITEM.href)
+                    ? "bg-primary/10 text-primary"
+                    : "text-text-muted hover:bg-surface-2 hover:text-text-main"
                 )}
               >
-                {item.icon}
-              </span>
-              {!isCollapsed && <span className="text-[13px] font-medium truncate">{translate(item.label)}</span>}
-            </Link>
-          </Tooltip>
-        ))}
+                <span className="material-symbols-outlined text-[16px]">{COMBINED_WEB_ITEM.icon}</span>
+                <span className="text-sm">{COMBINED_WEB_ITEM.label}</span>
+              </Link>
+            </div>
+          )}
 
-        {/* Debug items */}
+          {/* Collapsed mode flyout popover (portaled to document.body) */}
+          {isCollapsed && portalReady && mediaFlyoutOpen && mediaFlyoutPos && typeof document !== "undefined" && createPortal(
+            <div
+              ref={mediaFlyoutRef}
+              className="fixed z-[9998] w-52 rounded-xl border border-border-subtle bg-surface/95 backdrop-blur-xl p-1.5 shadow-2xl animate-in fade-in zoom-in-95 duration-100"
+              style={{
+                top: `${mediaFlyoutPos.top}px`,
+                left: `${mediaFlyoutPos.left}px`,
+              }}
+            >
+              <div className="px-2 py-1 text-[11px] font-semibold text-text-muted/70 uppercase tracking-wider">
+                Media Providers
+              </div>
+              {MEDIA_PROVIDER_KINDS.filter((k) => VISIBLE_MEDIA_KINDS.includes(k.id)).map((kind) => (
+                <Link
+                  key={kind.id}
+                  href={`/dashboard/media-providers/${kind.id}`}
+                  onClick={() => setMediaFlyoutOpen(false)}
+                  className={cn(
+                    "flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs transition-colors",
+                    pathname.startsWith(`/dashboard/media-providers/${kind.id}`)
+                      ? "bg-primary/10 text-primary font-medium"
+                      : "text-text-muted hover:bg-surface-2 hover:text-text-main"
+                  )}
+                >
+                  <span className="material-symbols-outlined text-[16px]">{kind.icon}</span>
+                  <span>{kind.label}</span>
+                </Link>
+              ))}
+              <Link
+                href={COMBINED_WEB_ITEM.href}
+                onClick={() => setMediaFlyoutOpen(false)}
+                className={cn(
+                  "flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs transition-colors",
+                  pathname.startsWith(COMBINED_WEB_ITEM.href)
+                    ? "bg-primary/10 text-primary font-medium"
+                    : "text-text-muted hover:bg-surface-2 hover:text-text-main"
+                )}
+              >
+                <span className="material-symbols-outlined text-[16px]">{COMBINED_WEB_ITEM.icon}</span>
+                <span>{COMBINED_WEB_ITEM.label}</span>
+              </Link>
+            </div>,
+            document.body
+          )}
+        </div>
+
+        {/* 6. Debug Items (Console Log, Translator) */}
         {debugItems.map((item) => {
           const show = item.href !== "/dashboard/translator" || enableTranslator;
           if (!show) return null;
@@ -471,7 +462,7 @@ export default function Sidebar({ onClose, isMobile = false }) {
                 href={item.href}
                 onClick={isMobile ? onClose : undefined}
                 className={cn(
-                  "flex items-center rounded-lg transition-all group",
+                  "flex items-center rounded-lg group transition-colors",
                   isCollapsed
                     ? "justify-center size-9 mx-auto"
                     : "gap-3 px-3 py-1.5 w-full",
@@ -488,13 +479,17 @@ export default function Sidebar({ onClose, isMobile = false }) {
                 >
                   {item.icon}
                 </span>
-                {!isCollapsed && <span className="text-[13px] font-medium truncate">{translate(item.label)}</span>}
+                {!isCollapsed && (
+                  <span className="text-[13px] font-medium truncate">
+                    {translate(item.label)}
+                  </span>
+                )}
               </Link>
             </Tooltip>
           );
         })}
 
-        {/* Settings */}
+        {/* 7. Settings (Always rendered) */}
         <Tooltip
           text={translate("Settings")}
           position="right"
@@ -505,7 +500,7 @@ export default function Sidebar({ onClose, isMobile = false }) {
             href="/dashboard/profile"
             onClick={isMobile ? onClose : undefined}
             className={cn(
-              "flex items-center rounded-lg transition-all group",
+              "flex items-center rounded-lg group transition-colors",
               isCollapsed
                 ? "justify-center size-9 mx-auto"
                 : "gap-3 px-3 py-1.5 w-full",
@@ -523,7 +518,11 @@ export default function Sidebar({ onClose, isMobile = false }) {
             >
               settings
             </span>
-            {!isCollapsed && <span className="text-[13px] font-medium truncate">Settings</span>}
+            {!isCollapsed && (
+              <span className="text-[13px] font-medium truncate">
+                {translate("Settings")}
+              </span>
+            )}
           </Link>
         </Tooltip>
       </nav>
@@ -534,4 +533,5 @@ export default function Sidebar({ onClose, isMobile = false }) {
 Sidebar.propTypes = {
   onClose: PropTypes.func,
   isMobile: PropTypes.bool,
+  initialCollapsed: PropTypes.bool,
 };

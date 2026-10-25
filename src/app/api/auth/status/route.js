@@ -3,14 +3,27 @@ import { cookies } from "next/headers";
 import { getSettings } from "@/lib/localDb";
 import { isOidcConfigured } from "@/lib/auth/oidc";
 import { isSamlConfigured } from "@/lib/auth/saml.js";
-import { getDashboardAuthSession } from "@/lib/auth/dashboardSession";
+import { getDashboardAuthSession, verifyLanAuthToken } from "@/lib/auth/dashboardSession";
 import { AUTH_COOKIE_NAMES } from "@/lib/auth/cookieNames";
+import { isLocalRequest } from "@/dashboardGuard";
 
-export async function GET() {
+export async function GET(request) {
   try {
+    const isLocal = request ? isLocalRequest(request) : true;
     const settings = await getSettings();
     const cookieStore = await cookies();
     const session = await getDashboardAuthSession(cookieStore.get(AUTH_COOKIE_NAMES.dashboard)?.value);
+    const lanToken = cookieStore.get(AUTH_COOKIE_NAMES.lanAuth)?.value;
+    let lanVerified = isLocal;
+    if (!isLocal && typeof verifyLanAuthToken === "function") {
+      try {
+        lanVerified = await verifyLanAuthToken(lanToken);
+      } catch {
+        lanVerified = false;
+      }
+    }
+    const lanSharingEnabled = Boolean(settings?.lanSharingEnabled);
+
     const requireLogin = settings.requireLogin !== false;
     const authMode = settings.authMode || "password";
     const ssoType = settings.ssoType || "oidc";
@@ -29,6 +42,9 @@ export async function GET() {
     const loginMethod = session?.saml ? "SAML" : session?.oidc ? "OIDC" : "Password";
 
     return NextResponse.json({
+      isLocal,
+      lanSharingEnabled,
+      lanVerified,
       requireLogin,
       authMode,
       ssoType,
@@ -49,6 +65,9 @@ export async function GET() {
     });
   } catch {
     return NextResponse.json({
+      isLocal: false,
+      lanSharingEnabled: false,
+      lanVerified: false,
       requireLogin: true,
       authMode: "password",
       ssoType: "oidc",

@@ -32,7 +32,7 @@ function getToastStyle(type) {
   };
 }
 
-export default function DashboardLayout({ children }) {
+export default function DashboardLayout({ children, initialCollapsed = false }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const pathname = usePathname();
   const fullHeight = ["/dashboard/basic-chat", "/dashboard/agent"].includes(pathname);
@@ -106,7 +106,7 @@ export default function DashboardLayout({ children }) {
 
       {/* Sidebar - Desktop */}
       <div className="hidden lg:flex shrink-0 h-full relative z-30">
-        <Sidebar />
+        <Sidebar initialCollapsed={initialCollapsed} />
       </div>
 
       {/* Sidebar - Mobile */}

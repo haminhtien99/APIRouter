@@ -74,6 +74,41 @@ export function clearDashboardAuthCookie(cookieStore) {
   cookieStore.delete(AUTH_COOKIE_NAMES.dashboard);
 }
 
+const LAN_SESSION_MAX_AGE_SEC = 7 * 24 * 60 * 60; // 7 days
+
+export async function createLanAuthToken(claims = {}) {
+  return new SignJWT({ lanVerified: true, ...claims })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("7d")
+    .sign(SECRET);
+}
+
+export async function verifyLanAuthToken(token) {
+  if (!token) return false;
+  try {
+    const { payload } = await jwtVerify(token, SECRET);
+    return payload?.lanVerified === true;
+  } catch {
+    return false;
+  }
+}
+
+export async function setLanAuthCookie(cookieStore, request, claims = {}) {
+  const token = await createLanAuthToken(claims);
+  cookieStore.set(AUTH_COOKIE_NAMES.lanAuth, token, {
+    httpOnly: true,
+    secure: shouldUseSecureCookie(request),
+    sameSite: "lax",
+    path: "/",
+    maxAge: LAN_SESSION_MAX_AGE_SEC,
+  });
+}
+
+export function clearLanAuthCookie(cookieStore) {
+  cookieStore.delete(AUTH_COOKIE_NAMES.lanAuth);
+}
+
 // Verify the current dashboard password (re-auth for sensitive actions).
 export async function verifyDashboardPassword(password) {
   if (typeof password !== "string" || !password) return false;

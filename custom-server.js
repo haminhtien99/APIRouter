@@ -164,6 +164,9 @@ http.createServer = (...args) => {
 };
 
 if (require.main === module) {
+  if (!process.env.HOSTNAME) {
+    process.env.HOSTNAME = "0.0.0.0";
+  }
   const standalone = path.join(__dirname, "server.js");
   if (fs.existsSync(standalone)) {
     require(standalone);
@@ -171,7 +174,11 @@ if (require.main === module) {
     // Repo checkout has no standalone build next to us. `next start` builds its HTTP
     // server in-process, so the wrapper above still sanitizes every request.
     const nextBin = require.resolve("next/dist/bin/next");
-    process.argv = [process.argv[0], nextBin, "start", ...process.argv.slice(2)];
+    const forwardedArgs = [...process.argv.slice(2)];
+    if (!forwardedArgs.includes("-H") && !forwardedArgs.includes("--hostname")) {
+      forwardedArgs.unshift("-H", process.env.HOSTNAME || "0.0.0.0");
+    }
+    process.argv = [process.argv[0], nextBin, "start", ...forwardedArgs];
     require(nextBin);
   }
 }

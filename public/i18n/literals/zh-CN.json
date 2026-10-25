@@ -1406,5 +1406,20 @@
   "Harness disconnected": "Harness 未连接",
   "Reconnect": "重新连接",
   "Open separately": "在新窗口打开",
-  "Loading Agent workspace…": "正在加载 Agent 工作区…"
+  "Loading Agent workspace…": "正在加载 Agent 工作区…",
+  "Start Agent": "启动 Agent",
+  "Stop Agent": "停止 Agent",
+  "Starting…": "正在启动…",
+  "Starting harness…": "正在启动 Harness…",
+  "Starting Harness…": "正在启动 Harness…",
+  "Stopping…": "正在停止…",
+  "Harness stopped": "Harness 已停止",
+  "Start Agent Workspace": "启动 Agent 工作区",
+  "Auto-start when visiting page": "打开页面时自动启动",
+  "Or start manually from your terminal if you prefer independent logs:": "或者从终端手动启动以查看独立日志：",
+  "Open standalone harness in a separate browser tab": "在独立浏览器标签页中打开 Harness",
+  "Stop background harness runtime": "停止 Harness 后台运行进程",
+  "Start & Open Separately": "启动并在新标签页打开",
+  "Opening in new tab…": "正在新标签页中打开…",
+  "Start harness and open directly in a new browser tab": "启动 harness 并直接在新的浏览器标签页中打开"
 }

@@ -224,5 +224,20 @@
   "Exit Focus": "Thoát tập trung",
   "Exit Focus Mode": "Thoát chế độ tập trung",
   "Exit Focus Mode (Esc)": "Thoát chế độ tập trung (Esc)",
-  "Focus Mode (Fullscreen Workspace)": "Chế độ tập trung (Toàn màn hình Workspace)"
+  "Focus Mode (Fullscreen Workspace)": "Chế độ tập trung (Toàn màn hình Workspace)",
+  "Start Agent": "Khởi động Agent",
+  "Stop Agent": "Dừng Agent",
+  "Starting…": "Đang khởi động…",
+  "Starting harness…": "Đang khởi động Harness…",
+  "Starting Harness…": "Đang khởi động Harness…",
+  "Stopping…": "Đang dừng…",
+  "Harness stopped": "Harness đã dừng",
+  "Start Agent Workspace": "Khởi động không gian làm việc Agent",
+  "Auto-start when visiting page": "Tự động khởi động khi vào trang",
+  "Or start manually from your terminal if you prefer independent logs:": "Hoặc khởi động thủ công từ terminal nếu muốn xem log riêng biệt:",
+  "Open standalone harness in a separate browser tab": "Mở Harness độc lập trong một tab trình duyệt riêng",
+  "Stop background harness runtime": "Dừng tiến trình chạy ngầm của Harness",
+  "Start & Open Separately": "Khởi động & Mở tab riêng",
+  "Opening in new tab…": "Đang mở tab mới…",
+  "Start harness and open directly in a new browser tab": "Khởi động harness và mở trực tiếp trong một tab trình duyệt mới"
 }

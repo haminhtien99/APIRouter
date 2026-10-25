@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSettings, validateApiKey } from "@/lib/localDb";
 import { getConsistentMachineId } from "@/shared/utils/machineId";
-import { verifyDashboardAuthToken } from "@/lib/auth/dashboardSession";
+import { verifyDashboardAuthToken, verifyLanAuthToken } from "@/lib/auth/dashboardSession";
 import { hasTrustedPeerHeaders } from "@/lib/auth/trustedPeer";
 import { AUTH_COOKIE_NAMES } from "@/lib/auth/cookieNames";
 
@@ -25,6 +25,7 @@ const PUBLIC_API_PATHS = [
   "/api/health",
   "/api/init",
   "/api/locale",
+  "/api/auth/lan-verify",
   "/api/auth/login",
   "/api/auth/logout",
   "/api/auth/status",
@@ -153,6 +154,19 @@ async function canAccessLocalOnlyRoute(request) {
   if (await hasValidCliToken(request)) return true;
   // Browser on host: loopback Host + Origin (blocks tunnel/CSRF) + auth (JWT or requireLogin=false)
   if (isLocalRequest(request) && await isAuthenticated(request)) return true;
+
+  // Remote LAN client: check if LAN sharing is enabled, LAN token is verified, and authenticated
+  const { pathname } = request.nextUrl;
+  if (pathname.startsWith("/api/harness")) {
+    const settings = await loadSettings();
+    if (settings?.lanSharingEnabled) {
+      const lanToken = request.cookies.get(AUTH_COOKIE_NAMES.lanAuth)?.value;
+      if (await verifyLanAuthToken(lanToken) && await isAuthenticated(request)) {
+        return true;
+      }
+    }
+  }
+
   return false;
 }
 
@@ -223,13 +237,27 @@ export async function proxy(request) {
   // Protect all dashboard routes
   if (pathname.startsWith("/dashboard")) {
     let requireLogin = true;
+    let lanSharingEnabled = false;
     try {
       const settings = await loadSettings();
       if (settings) {
         requireLogin = settings.requireLogin !== false;
+        lanSharingEnabled = Boolean(settings.lanSharingEnabled);
       }
     } catch {
       // On error, keep defaults (require login, block tunnel)
+    }
+
+    // Remote access check: if not local request, enforce LAN sharing & verification
+    const isLocal = isLocalRequest(request);
+    if (!isLocal) {
+      if (!lanSharingEnabled) {
+        return NextResponse.redirect(new URL("/login?error=lan_disabled", request.url));
+      }
+      const lanToken = request.cookies.get(AUTH_COOKIE_NAMES.lanAuth)?.value;
+      if (!(await verifyLanAuthToken(lanToken))) {
+        return NextResponse.redirect(new URL("/login?step=lan", request.url));
+      }
     }
 
     // If login not required, allow through
