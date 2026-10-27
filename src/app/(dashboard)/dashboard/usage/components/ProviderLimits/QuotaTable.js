@@ -125,6 +125,16 @@ export default function QuotaTable({
     (page - 1) * PAGE_SIZE,
     page * PAGE_SIZE,
   );
+  const pageGroups = currentPageRows.reduce((sections, quota) => {
+    const label = quota.group || null;
+    const last = sections[sections.length - 1];
+    if (last?.label === label) {
+      last.rows.push(quota);
+    } else {
+      sections.push({ label, rows: [quota] });
+    }
+    return sections;
+  }, []);
   const pageStart = sortedQuotas.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const pageEnd = Math.min(page * PAGE_SIZE, sortedQuotas.length);
 
@@ -149,7 +159,14 @@ export default function QuotaTable({
       </div>
 
       <div className="space-y-px">
-        {currentPageRows.map((quota) => {
+        {pageGroups.map(({ label, rows }, groupIndex) => (
+          <section key={`${label || "ungrouped"}-${groupIndex}`} aria-label={label || undefined}>
+            {label && (
+              <h3 className="pt-2.5 pb-1 px-1 text-[11px] font-bold text-text-primary tracking-wide">
+                {label}
+              </h3>
+            )}
+            {rows.map((quota) => {
           const isUnlimited = quota.unlimited === true;
           const isCreditBalance = quota.isCreditBalance === true;
           const colors = isCreditBalance
@@ -165,13 +182,13 @@ export default function QuotaTable({
 
           return (
             <div
-              key={`${quota.name}-${quota.index}`}
+              key={`${quota.group || ""}-${quota.name}-${quota.index}`}
               className={`flex items-center gap-2 border-b border-black/5 dark:border-white/5 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors ${cellPad}`}
             >
               {/* Name */}
               <div className="flex w-36 min-w-0 items-center gap-1.5">
                 <span className="text-[10px] shrink-0">{colors.emoji}</span>
-                <span className={`${nameText} font-medium text-text-primary truncate`}>
+                <span className={`${nameText} font-medium text-text-primary truncate`} title={quota.name}>
                   {quota.name}
                 </span>
               </div>
@@ -255,9 +272,11 @@ export default function QuotaTable({
                   </span>
                 </button>
               )}
-            </div>
+          </div>
           );
-        })}
+            })}
+          </section>
+        ))}
       </div>
 
       {totalPages > 1 && (

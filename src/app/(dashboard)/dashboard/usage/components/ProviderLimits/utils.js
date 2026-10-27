@@ -300,12 +300,17 @@ export function calculatePercentage(used, total) {
  * @returns {number} Remaining percentage (0-100)
  */
 export function getRemainingPercentage(quota) {
-  if (quota?.remaining !== undefined) {
-    return Math.max(0, Math.round(quota.remaining));
+  if (quota?.remainingPercentage !== undefined) {
+    return Math.max(0, Math.min(100, Math.round(quota.remainingPercentage)));
   }
 
-  if (quota?.remainingPercentage !== undefined) {
-    return Math.round(quota.remainingPercentage);
+  if (quota?.total && quota?.total > 100) {
+    const used = quota.used || 0;
+    return Math.max(0, Math.min(100, Math.round(((quota.total - used) / quota.total) * 100)));
+  }
+
+  if (quota?.remaining !== undefined) {
+    return Math.max(0, Math.min(100, Math.round(quota.remaining)));
   }
 
   return calculatePercentage(quota?.used, quota?.total);
@@ -376,19 +381,18 @@ export function parseQuotaData(provider, data) {
       case "antigravity":
         if (data.quotas) {
           const entries = Object.entries(data.quotas);
-          const weeklyKeys = new Set(["gemini_weekly", "claude_gpt_weekly"]);
           const geminiModels = entries.filter(([k]) => k.startsWith("gemini-") && !k.includes("image"));
-          const claudeModels = entries.filter(([k]) => k.startsWith("claude-"));
-          const imageModels = entries.filter(([k]) => k.includes("image"));
-          const weeklyModels = entries.filter(([k]) => weeklyKeys.has(k));
-          const otherModels = entries.filter(([k]) => !k.startsWith("gemini-") && !k.startsWith("claude-") && !k.includes("image") && !weeklyKeys.has(k));
+          const claudeGptModels = entries.filter(([k]) => k.startsWith("claude-") || k.startsWith("gpt-"));
+          const geminiWeekly = data.quotas.gemini_weekly;
+          const claudeGptWeekly = data.quotas.claude_gpt_weekly;
 
           if (geminiModels.length > 0) {
             const rep = geminiModels.reduce((min, cur) =>
               (cur[1].remainingPercentage ?? 100) < (min[1].remainingPercentage ?? 100) ? cur : min
             )[1];
             normalizedQuotas.push({
-              name: "Gemini (Flash / Pro)",
+              name: "5h",
+              group: "Gemini models",
               modelKey: "gemini",
               used: rep.used || 0,
               total: rep.total || 0,
@@ -397,12 +401,25 @@ export function parseQuotaData(provider, data) {
             });
           }
 
-          if (claudeModels.length > 0) {
-            const rep = claudeModels.reduce((min, cur) =>
+          if (geminiWeekly) {
+            normalizedQuotas.push({
+              name: "Weekly",
+              group: "Gemini models",
+              modelKey: "gemini_weekly",
+              used: geminiWeekly.used || 0,
+              total: geminiWeekly.total || 0,
+              resetAt: geminiWeekly.resetAt || null,
+              remainingPercentage: geminiWeekly.remainingPercentage,
+            });
+          }
+
+          if (claudeGptModels.length > 0) {
+            const rep = claudeGptModels.reduce((min, cur) =>
               (cur[1].remainingPercentage ?? 100) < (min[1].remainingPercentage ?? 100) ? cur : min
             )[1];
             normalizedQuotas.push({
-              name: "Claude (Sonnet / Opus)",
+              name: "5h",
+              group: "Claude and GPT models",
               modelKey: "claude",
               used: rep.used || 0,
               total: rep.total || 0,
@@ -411,38 +428,17 @@ export function parseQuotaData(provider, data) {
             });
           }
 
-          weeklyModels.forEach(([modelKey, quota]) => {
+          if (claudeGptWeekly) {
             normalizedQuotas.push({
-              name: quota.displayName || modelKey,
-              modelKey,
-              used: quota.used || 0,
-              total: quota.total || 0,
-              resetAt: quota.resetAt || null,
-              remainingPercentage: quota.remainingPercentage,
+              name: "Weekly",
+              group: "Claude and GPT models",
+              modelKey: "claude_gpt_weekly",
+              used: claudeGptWeekly.used || 0,
+              total: claudeGptWeekly.total || 0,
+              resetAt: claudeGptWeekly.resetAt || null,
+              remainingPercentage: claudeGptWeekly.remainingPercentage,
             });
-          });
-
-          imageModels.forEach(([modelKey, quota]) => {
-            normalizedQuotas.push({
-              name: quota.displayName || modelKey,
-              modelKey,
-              used: quota.used || 0,
-              total: quota.total || 0,
-              resetAt: quota.resetAt || null,
-              remainingPercentage: quota.remainingPercentage,
-            });
-          });
-
-          otherModels.forEach(([modelKey, quota]) => {
-            normalizedQuotas.push({
-              name: quota.displayName || modelKey,
-              modelKey,
-              used: quota.used || 0,
-              total: quota.total || 0,
-              resetAt: quota.resetAt || null,
-              remainingPercentage: quota.remainingPercentage,
-            });
-          });
+          }
         }
         break;
 
@@ -693,19 +689,17 @@ export function parseQuotaData(provider, data) {
     return normalizedQuotas;
   }
 
+  // Antigravity rows are already ordered by group: Gemini 5h/weekly, then Claude/GPT 5h/weekly.
+  if (provider === "antigravity") return normalizedQuotas;
+
   // Sort quotas according to PROVIDER_MODELS order
   const modelOrder = getModelsByProviderId(provider);
   if (modelOrder.length > 0) {
     const orderMap = new Map(modelOrder.map((m, i) => [m.id, i]));
     
     normalizedQuotas.sort((a, b) => {
-      // Use modelKey for antigravity (mapped to family anchor), otherwise use name
-      let keyA = a.modelKey || a.name;
-      let keyB = b.modelKey || b.name;
-      if (keyA === "gemini") keyA = "gemini-3.8-flash-high";
-      if (keyA === "claude") keyA = "claude-sonnet-4-6";
-      if (keyB === "gemini") keyB = "gemini-3.8-flash-high";
-      if (keyB === "claude") keyB = "claude-sonnet-4-6";
+      const keyA = a.modelKey || a.name;
+      const keyB = b.modelKey || b.name;
       const orderA = orderMap.get(keyA) ?? 999;
       const orderB = orderMap.get(keyB) ?? 999;
       return orderA - orderB;
