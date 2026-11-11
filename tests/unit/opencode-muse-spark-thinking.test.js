@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getCapabilitiesForModel } from "../../open-sse/providers/capabilities.js";
-import { PROVIDER_MODELS, getModelTargetFormat } from "../../open-sse/config/providerModels.js";
+import { getModelTargetFormat } from "../../open-sse/config/providerModels.js";
 import { getThinkingLevels } from "../../open-sse/providers/thinkingLevels.js";
 import { FORMATS } from "../../open-sse/translator/formats.js";
 import { OpenCodeExecutor } from "../../open-sse/executors/opencode.js";
@@ -18,8 +18,7 @@ const input = [{
 
 describe("OpenCode Free Muse Spark thinking", () => {
   it("advertises reasoning and the requested model limits", () => {
-    expect(PROVIDER_MODELS.oc?.some((model) => model.id === MODEL)).toBe(true);
-    expect(PROVIDER_MODELS.oc?.some((model) => model.id === "muse-spark-1.3-contributor-free")).toBe(true);
+    // Muse Spark ids are retired from the free catalog but remain routable via passthrough.
     for (const m of [MODEL, "muse-spark-1.3-contributor-free", "muse-spark-1.4-contributor-free", "muse-spark-2.0-contributor-free"]) {
       expect(getCapabilitiesForModel(PROVIDER, m)).toMatchObject({
         reasoning: true,
@@ -73,7 +72,7 @@ describe("OpenCode Free Muse Spark thinking", () => {
 
     expect(getModelTargetFormat("oc", "union-alpha")).toBe(FORMATS.CLAUDE);
     const url = executor.buildUrl("union-alpha");
-    expect(url).toBe("https://opencode.ai/zen/v1/messages");
+    expect(url).toBe("https://opencode.ai/inference/v1/messages");
     expect(executor.buildHeaders({}, true, url)).toMatchObject({
       "anthropic-version": "2023-06-01",
     });
@@ -100,7 +99,7 @@ describe("OpenCode Free Muse Spark thinking", () => {
     const executor = new OpenCodeExecutor();
     const body = { messages: [{ role: "user", content: "hi" }], max_tokens: 1024 };
     executor.transformRequest("big-pickle", body, true, {});
-    expect(executor.buildUrl("big-pickle")).toBe("https://opencode.ai/zen/v1/chat/completions");
+    expect(executor.buildUrl("big-pickle")).toBe("https://opencode.ai/inference/v1/chat/completions");
     expect(body.max_tokens).toBe(1024);
     expect(body.max_output_tokens).toBeUndefined();
   });
@@ -136,8 +135,8 @@ describe("OpenCode Free Muse Spark thinking", () => {
     const futureModel = "muse-spark-1.4-contributor-free";
 
     for (const m of ["muse-spark-1.3-contributor-free", futureModel]) {
-      expect(executor.buildUrl(m)).toBe("https://opencode.ai/zen/v1/responses");
-      expect(executor.buildUrl(`${m}(high)`)).toBe("https://opencode.ai/zen/v1/responses");
+      expect(executor.buildUrl(m)).toBe("https://opencode.ai/inference/v1/responses");
+      expect(executor.buildUrl(`${m}(high)`)).toBe("https://opencode.ai/inference/v1/responses");
       expect(getModelTargetFormat("oc", m)).toBe("openai-responses");
 
       const body = {
@@ -215,13 +214,13 @@ describe("OpenCode Free Muse Spark thinking", () => {
     const types = out.input.map((item) => item.type);
     expect(types).toEqual(["message", "function_call", "function_call_output", "message"]);
     // Tools flattened and empty properties added
-    expect(out.tools).toEqual([
+    expect(out.tools).toEqual(expect.arrayContaining([
       {
         type: "function",
-        name: "shell",
+        name: "shell_client",
         description: "Run shell command",
         parameters: { type: "object", properties: {} },
       },
-    ]);
+    ]));
   });
 });

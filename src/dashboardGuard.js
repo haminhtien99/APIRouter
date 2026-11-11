@@ -70,7 +70,6 @@ const PROTECTED_API_PATHS = [
 
 // Routes that spawn child processes or read host secrets — restrict to localhost.
 const LOCAL_ONLY_PATHS = [
-  "/api/harness",
   "/api/cli-tools/cowork-settings",
   "/api/cli-tools/antigravity-mitm",
   "/api/mcp/",
@@ -152,22 +151,8 @@ async function canAccessPublicLlmApi(request) {
 
 async function canAccessLocalOnlyRoute(request) {
   if (await hasValidCliToken(request)) return true;
-  // Browser on host: loopback Host + Origin (blocks tunnel/CSRF) + auth (JWT or requireLogin=false)
-  if (isLocalRequest(request) && await isAuthenticated(request)) return true;
-
-  // Remote LAN client: check if LAN sharing is enabled, LAN token is verified, and authenticated
-  const { pathname } = request.nextUrl;
-  if (pathname.startsWith("/api/harness")) {
-    const settings = await loadSettings();
-    if (settings?.lanSharingEnabled) {
-      const lanToken = request.cookies.get(AUTH_COOKIE_NAMES.lanAuth)?.value;
-      if (await verifyLanAuthToken(lanToken) && await isAuthenticated(request)) {
-        return true;
-      }
-    }
-  }
-
-  return false;
+  // Browser on host: loopback peer + Origin (blocks tunnel/CSRF) + dashboard auth.
+  return isLocalRequest(request) && await isAuthenticated(request);
 }
 
 async function hasValidToken(request) {

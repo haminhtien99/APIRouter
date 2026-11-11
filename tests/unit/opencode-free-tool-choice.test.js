@@ -21,8 +21,11 @@ function responsesBody(model, tool_choice) {
 }
 
 describe("opencode Free 1.3 tool_choice auto-only", () => {
-  it("khai quirk đúng model 1.3-Free trong registry", () => {
-    expect(PROVIDERS.opencode.quirks?.forceAutoToolChoiceModels).toEqual([FREE_13]);
+  it("khai quirk đúng các model auto-only trong registry", () => {
+    expect(PROVIDERS.opencode.quirks?.forceAutoToolChoiceModels).toContain(FREE_13);
+    expect(PROVIDERS.opencode.quirks?.forceAutoToolChoiceModels).toEqual(
+      expect.arrayContaining(["glm-5.3-flash-free", "minimax-m3.1-flash-free", "mimo-v2.6-flash-free"]),
+    );
   });
 
   it.each([
@@ -36,9 +39,34 @@ describe("opencode Free 1.3 tool_choice auto-only", () => {
       const body = responsesBody(model, structuredClone(choice));
       const out = new OpenCodeExecutor().transformRequest(model, body, true, CREDS);
       expect(out.tool_choice).toBe("auto");
-      expect(out.tools).toEqual(TOOLS);
+      expect(out.tools).toEqual(expect.arrayContaining(TOOLS));
       expect(out.input).toEqual(INPUT);
     }
+  });
+
+  it.each(["glm-5.3-flash-free", "minimax-m3.1-flash-free", "mimo-v2.6-flash-free"])(
+    "demote tool_choice về auto trên chat completions cho %s",
+    (model) => {
+      const body = {
+        model,
+        messages: [{ role: "user", content: "hi" }],
+        tools: [{ type: "function", function: { name: "get_weather", parameters: { type: "object", properties: {} } } }],
+        tool_choice: { type: "function", function: { name: "get_weather" } },
+      };
+      const out = new OpenCodeExecutor().transformRequest(model, body, true, CREDS);
+      expect(out.tool_choice).toBe("auto");
+    },
+  );
+
+  it("giữ tool_choice required cho chat model không auto-only", () => {
+    const body = {
+      model: "big-pickle",
+      messages: [{ role: "user", content: "hi" }],
+      tools: [{ type: "function", function: { name: "get_weather", parameters: { type: "object", properties: {} } } }],
+      tool_choice: "required",
+    };
+    const out = new OpenCodeExecutor().transformRequest("big-pickle", body, true, CREDS);
+    expect(out.tool_choice).toBe("required");
   });
 
   it("giữ auto và absent; tools/input nguyên vẹn", () => {
@@ -46,14 +74,14 @@ describe("opencode Free 1.3 tool_choice auto-only", () => {
       FREE_13, responsesBody(FREE_13, "auto"), true, CREDS,
     );
     expect(autoOut.tool_choice).toBe("auto");
-    expect(autoOut.tools).toEqual(TOOLS);
+    expect(autoOut.tools).toEqual(expect.arrayContaining(TOOLS));
     expect(autoOut.input).toEqual(INPUT);
 
     const absentOut = new OpenCodeExecutor().transformRequest(
       FREE_13, responsesBody(FREE_13, undefined), true, CREDS,
     );
-    expect("tool_choice" in absentOut).toBe(false);
-    expect(absentOut.tools).toEqual(TOOLS);
+    expect(absentOut.tool_choice).toBe("auto");
+    expect(absentOut.tools).toEqual(expect.arrayContaining(TOOLS));
     expect(absentOut.input).toEqual(INPUT);
   });
 
@@ -69,22 +97,22 @@ describe("opencode Free 1.3 tool_choice auto-only", () => {
     expect(out.tool_choice).toEqual(choice);
   });
 
-  it("wire: execute gửi choice auto tới /zen/v1/responses", async () => {
+  it("wire: execute gửi choice auto tới /inference/v1/responses", async () => {
     proxyAwareFetch.mockClear();
     const ex = new OpenCodeExecutor();
     const body = responsesBody(FREE_13, { type: "function", name: "get_weather" });
     const { url, transformedBody } = await ex.execute({
       model: FREE_13, body, stream: true, credentials: CREDS,
     });
-    expect(url).toBe("https://opencode.ai/zen/v1/responses");
+    expect(url).toBe("https://opencode.ai/inference/v1/responses");
     expect(transformedBody.tool_choice).toBe("auto");
     expect(proxyAwareFetch).toHaveBeenCalledTimes(1);
     const [actualUrl, actualInit] = proxyAwareFetch.mock.calls[0];
-    expect(actualUrl).toBe("https://opencode.ai/zen/v1/responses");
+    expect(actualUrl).toBe("https://opencode.ai/inference/v1/responses");
     const sent = JSON.parse(actualInit.body);
     expect(sent.tool_choice).toBe("auto");
     expect(sent.model).toBe(FREE_13);
-    expect(sent.tools).toEqual(TOOLS);
+    expect(sent.tools).toEqual(expect.arrayContaining(TOOLS));
     expect(sent.input).toEqual(INPUT);
   });
 });

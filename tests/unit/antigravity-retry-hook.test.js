@@ -37,6 +37,27 @@ describe("antigravity computeRetryDelay hook (D3)", () => {
     expect(await ag.computeRetryDelay(res(503), 1)).toBe(2000);
   });
 
+  it.each(["true", true])("does not amplify Google's exhausted capacity retries (%s)", async exhausted => {
+    const body = { error: {
+      code: 503,
+      message: "No capacity available for model gemini-3.8-flash-high on the server",
+      status: "UNAVAILABLE",
+      details: [{
+        "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+        reason: "MODEL_CAPACITY_EXHAUSTED",
+        domain: "cloudcode-pa.googleapis.com",
+        metadata: { OVERLOADED_TOO_MANY_RETRIES_PER_REQUEST: exhausted },
+      }],
+    } };
+    expect(await ag.computeRetryDelay(res(503, { "retry-after": "3" }, body), 1)).toBe(false);
+  });
+
+  it("retains bounded retries when upstream has not marked retries exhausted", async () => {
+    expect(await ag.computeRetryDelay(res(503, {}, {
+      error: { details: [{ metadata: { OVERLOADED_TOO_MANY_RETRIES_PER_REQUEST: "false" } }] },
+    }), 1)).toBe(2000);
+  });
+
   it("retries Antigravity agent terminated body even when status is not 429", async () => {
     const r = res(500, {}, { error: { message: "Agent execution terminated due to error" } });
     expect(await ag.computeRetryDelay(r, 1)).toBe(2000);

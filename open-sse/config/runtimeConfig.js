@@ -28,7 +28,22 @@ export const MEMORY_CONFIG = {
   sessionTtlMs: 2 * 60 * 60 * 1000,
   sessionCleanupIntervalMs: 30 * 60 * 1000,
   dnsCacheTtlMs: 5 * 60 * 1000,
+  hostsFileCacheTtlMs: 5 * 1000,
   proxyDispatchersMaxSize: 20,
+};
+
+export const MITM_DNS_BYPASS_CONFIG = {
+  hosts: [
+    "cloudcode-pa.googleapis.com",
+    "daily-cloudcode-pa.googleapis.com",
+    "api.individual.githubcopilot.com",
+    "q.us-east-1.amazonaws.com",
+    "codewhisperer.us-east-1.amazonaws.com",
+    "api2.cursor.sh",
+  ],
+  hostsFile: process.platform === "win32"
+    ? `${process.env.SystemRoot || "C:\\Windows"}\\System32\\drivers\\etc\\hosts`
+    : "/etc/hosts",
 };
 
 // Parse a positive integer env override, falling back to a default.

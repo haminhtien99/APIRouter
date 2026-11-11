@@ -1394,7 +1394,7 @@ export default function ProfilePage() {
             <div>
               <h3 className="text-base sm:text-lg font-semibold">LAN Network Sharing & Security</h3>
               <p className="text-xs text-text-muted">
-                Chia sẻ APIRouter & DeepSeek Harness cho các máy khác trong cùng mạng Wi-Fi / LAN
+                Chia sẻ APIRouter cho các máy khác trong cùng mạng Wi-Fi / LAN
               </p>
             </div>
           </div>
@@ -1515,7 +1515,7 @@ export default function ProfilePage() {
                   <div className="text-[11px] text-text-muted leading-relaxed pt-1 border-t border-border/40">
                     <p className="font-medium text-text-main mb-0.5">Quy trình kết nối 2 bước:</p>
                     <p>1. Mở URL trên từ máy khác → Nhập <b>LAN Hash Key</b> để vượt qua cổng kiểm tra.</p>
-                    <p>2. Nhập mật khẩu đăng nhập APIRouter → Toàn quyền sử dụng Dashboard và <b>DeepSeek Harness Agent</b>.</p>
+                    <p>2. Nhập mật khẩu đăng nhập APIRouter → Toàn quyền sử dụng <b>Dashboard APIRouter</b>.</p>
                   </div>
                 </div>
 

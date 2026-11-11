@@ -3,6 +3,7 @@ import { BaseExecutor } from "./base.js";
 import { PROVIDERS } from "../config/providers.js";
 import { OAUTH_ENDPOINTS, ANTIGRAVITY_HEADERS, AG_DEFAULT_TOOLS, AG_TOOL_SUFFIX, ANTIGRAVITY_PROMPT_REWRITES } from "../config/appConstants.js";
 import { HTTP_STATUS } from "../config/runtimeConfig.js";
+import { ANTIGRAVITY_RETRY_EXHAUSTED_METADATA_KEY } from "../config/errorConfig.js";
 import { resolveSessionId, toNumericSessionId } from "../utils/sessionManager.js";
 import { proxyAwareFetch } from "../utils/proxyFetch.js";
 import { cleanJSONSchemaForAntigravity, normalizeGeminiContents } from "../translator/formats/gemini.js";
@@ -422,6 +423,13 @@ export class AntigravityExecutor extends BaseExecutor {
     } catch {
       // ignore parse errors → fall through to status/message based retry
     }
+
+    // Google has already exhausted its serving retries; repeating the same request amplifies overload.
+    const details = errorJson?.error?.details;
+    if (Array.isArray(details) && details.some(detail => {
+      const exhausted = detail?.metadata?.[ANTIGRAVITY_RETRY_EXHAUSTED_METADATA_KEY];
+      return exhausted === true || exhausted === "true";
+    })) return false;
 
     const errorMessage = this.extractErrorMessage(errorJson, bodyText);
 

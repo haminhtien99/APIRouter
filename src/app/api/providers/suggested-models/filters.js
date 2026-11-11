@@ -17,9 +17,10 @@ export const FILTERS = {
       .sort((a, b) => b.contextLength - a.contextLength),
 
   "opencode-free": (models) =>
-    models
+    (Array.isArray(models) ? models : [])
       .filter((m) => (m.id?.endsWith("-free") || KNOWN_FREE_OPENCODE_MODELS.includes(m.id)) && !DEAD_FREE_OPENCODE_MODELS.has(m.id))
-      .map((m) => ({ id: m.id, name: m.id })),
+      .filter((m) => (m.limit?.context ?? 0) >= 200000)
+      .map((m) => ({ id: m.id, name: m.name || m.id, contextLength: m.limit?.context })),
 
   // models.dev returns a large catalog; keep only mimo models
   "mimo-free": (models) =>

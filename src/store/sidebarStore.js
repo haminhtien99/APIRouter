@@ -19,7 +19,6 @@ const syncCookieAndStorage = (isCollapsed) => {
 const getInitialCollapsed = () => {
   if (typeof window === "undefined") return false;
   try {
-    if (window.location.pathname.startsWith("/dashboard/agent")) return true;
     const match = document.cookie.match(/(?:^|;\s*)apirouter_sidebar_collapsed=([^;]+)/);
     if (match) return match[1] === "true";
     const raw = localStorage.getItem("apirouter_sidebar_collapsed");

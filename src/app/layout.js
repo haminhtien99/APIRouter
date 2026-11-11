@@ -35,7 +35,7 @@ export default function RootLayout({ children }) {
         {/* Apply persisted sidebar collapsed state before first paint. */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var p=window.location.pathname||'';var isAgent=p.startsWith('/dashboard/agent');var c=isAgent;if(!c){var match=document.cookie.match(/(?:^|;\\s*)apirouter_sidebar_collapsed=([^;]+)/);if(match){c=match[1]==='true';}else{var s=localStorage.getItem('apirouter_sidebar_collapsed');if(s){var parsed=JSON.parse(s);if(parsed&&parsed.state&&parsed.state.isCollapsed)c=true;}}}if(c){document.documentElement.setAttribute('data-sidebar-collapsed','true');}else{document.documentElement.removeAttribute('data-sidebar-collapsed');}}catch(e){}})();`,
+            __html: `(function(){try{var c=false;var match=document.cookie.match(/(?:^|;\\s*)apirouter_sidebar_collapsed=([^;]+)/);if(match){c=match[1]==='true';}else{var s=localStorage.getItem('apirouter_sidebar_collapsed');if(s){var parsed=JSON.parse(s);if(parsed&&parsed.state&&parsed.state.isCollapsed)c=true;}}if(c){document.documentElement.setAttribute('data-sidebar-collapsed','true');}else{document.documentElement.removeAttribute('data-sidebar-collapsed');}}catch(e){}})();`,
           }}
         />
         <script

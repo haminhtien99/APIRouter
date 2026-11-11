@@ -14,7 +14,10 @@ import {
   coerceResponsesOutput,
 } from "../translator/formats/responsesApi.js";
 
-const OPENCODE_UA = "opencode/1.18.31";
+import { OPENCODE_COMPAT_CONFIG } from "../config/opencodeConfig.js";
+import { applyFingerprintTools, takeRenamedToolNames, recordRenamedToolNames, restoreToolNames } from "../utils/opencodeFingerprint.js";
+import { opencodeTlsFetch } from "../services/opencodeTlsClient.js";
+const OPENCODE_UA = OPENCODE_COMPAT_CONFIG.userAgent;
 const MAX_SESSION_LENGTH = 256;
 const MAX_TOOL_NAME_LEN = 128;
 const SESSION_HEADER = "x-opencode-session";
@@ -24,74 +27,8 @@ export const OPENCODE_SESSION_RE = /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/;
 export const OPENCODE_REQUEST_RE = /^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/;
 const BASE62_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
-// OpenCode free tier requires both 'bash' and 'read' in tools payload.
-// Injected as cloaked decoy tools so external CLI tools (e.g. Claude Code's Bash/Read)
-// take precedence while satisfying upstream verification.
-const OPENCODE_DECOY_CHAT_TOOLS = [
-  {
-    type: "function",
-    function: {
-      name: "bash",
-      description: "This tool is currently unavailable and must not be used.",
-      parameters: { type: "object", properties: {} },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "read",
-      description: "This tool is currently unavailable and must not be used.",
-      parameters: { type: "object", properties: {} },
-    },
-  },
-];
-
-const OPENCODE_DECOY_RESPONSES_TOOLS = [
-  {
-    type: "function",
-    name: "bash",
-    description: "This tool is currently unavailable and must not be used.",
-    parameters: { type: "object", properties: {} },
-  },
-  {
-    type: "function",
-    name: "read",
-    description: "This tool is currently unavailable and must not be used.",
-    parameters: { type: "object", properties: {} },
-  },
-];
-
-function cloakOpencodeTools(body, isResponses) {
-  if (!body || typeof body !== "object") return;
-  if (isResponses) {
-    if (!Array.isArray(body.tools)) body.tools = [];
-    const names = new Set(body.tools.map((t) => t.name || t.function?.name));
-    for (const tool of OPENCODE_DECOY_RESPONSES_TOOLS) {
-      if (!names.has(tool.name)) body.tools.push({ ...tool });
-    }
-    if (!body.tool_choice) body.tool_choice = "auto";
-  } else {
-    const hasTools = Array.isArray(body.tools) && body.tools.length > 0;
-    if (!hasTools) {
-      body.tools = OPENCODE_DECOY_CHAT_TOOLS.map((t) => ({ ...t, function: { ...t.function } }));
-      if (!body.tool_choice) body.tool_choice = "none";
-    } else {
-      const names = new Set(body.tools.map((t) => t.function?.name || t.name));
-      for (const tool of OPENCODE_DECOY_CHAT_TOOLS) {
-        if (!names.has(tool.function.name)) {
-          body.tools.push({ ...tool, function: { ...tool.function } });
-        }
-      }
-    }
-  }
-}
-
 function hasValidOpencodeVersion(ua) {
-  const m = String(ua || "").match(/opencode\/(\d+)\.(\d+)(?:\.(\d+))?/i);
-  if (!m) return false;
-  const major = parseInt(m[1], 10);
-  const minor = parseInt(m[2], 10);
-  return major > 1 || (major === 1 && minor >= 17);
+  return /^opencode\/[a-z0-9-]+\/[2-9]\d*\.\d+\.\d+\/[a-z0-9-]+$/i.test(String(ua || ""));
 }
 // Models served by /zen/v1/responses; every other model stays on /chat/completions.
 const RESPONSES_MODELS = new Set([
@@ -140,20 +77,22 @@ export function generateRequestId(timestamp = Date.now()) {
   return `msg_${time}${unstableRandom()}`;
 }
 
+const translatedSessions = new Map();
 export function translateSessionId(sessionId, clientTool = "") {
-  if (typeof sessionId === "string" && OPENCODE_SESSION_RE.test(sessionId.trim())) {
-    return sessionId.trim();
+  if (typeof sessionId === "string" && OPENCODE_SESSION_RE.test(sessionId.trim())) return sessionId.trim();
+  const key = `${clientTool}\0${sessionId || ""}`;
+  const now = Date.now();
+  const cached = translatedSessions.get(key);
+  if (cached && now - cached.lastUsed < MEMORY_CONFIG.sessionTtlMs) {
+    cached.lastUsed = now;
+    return cached.sessionId;
   }
-  const digest = crypto
-    .createHash("sha256")
-    .update(`opencode\0${clientTool || "generic"}\0${sessionId || ""}`)
-    .digest();
-  const timeHex = digest.subarray(0, 6).toString("hex");
-  let randomPart = "";
-  for (let i = 6; i < 20; i++) {
-    randomPart += BASE62_CHARS[digest[i] % 62];
+  if (translatedSessions.size >= OPENCODE_COMPAT_CONFIG.maxTranslatedSessions) {
+    translatedSessions.delete(translatedSessions.keys().next().value);
   }
-  return `ses_${timeHex}${randomPart}`;
+  const id = generateSessionId();
+  translatedSessions.set(key, { sessionId: id, lastUsed: now });
+  return id;
 }
 
 function normalizeSession(value) {
@@ -499,24 +438,59 @@ export class OpenCodeExecutor extends BaseExecutor {
       body.store = false;
       normalizeResponsesTools(body);
       sanitizeResponsesItems(body);
-      if (!Array.isArray(body.tools) || body.tools.length === 0) {
-        cloakOpencodeTools(body, true);
-      }
+      applyFingerprintTools(body, true);
     } else if (body && typeof body === "object") {
-      cloakOpencodeTools(body, false);
+      applyFingerprintTools(body, false, { claude: isMessagesModel(model || body.model) });
+      // ponytail: chỉ model đã xác nhận auto-only; mở allowlist khi có bằng chứng.
+      if ("tool_choice" in body && body.tool_choice !== "auto"
+        && this.config.quirks?.forceAutoToolChoiceModels?.includes(baseModelId(model || body.model))) {
+        body.tool_choice = "auto";
+      }
     }
-    return injectReasoningContent({ provider: this.provider, model, body });
+    const transformed = injectReasoningContent({ provider: this.provider, model, body });
+    recordRenamedToolNames(transformed, takeRenamedToolNames(body));
+    return transformed;
   }
 
   async execute(args) {
-    return super.execute({ ...args, credentials: this.prepareRequestCredentials(args) });
+    const result = await super.execute({ ...args, credentials: this.prepareRequestCredentials(args), directFetch: opencodeTlsFetch });
+    const map = takeRenamedToolNames(result.transformedBody);
+    if (map?.size && result.response.ok && result.response.body) {
+      const response = result.response;
+      const headers = new Headers(response.headers);
+      // Rewritten/decompressed bodies cannot retain upstream framing or coding.
+      // Connection can also nominate arbitrary hop-by-hop header names.
+      const connectionHeaders = (headers.get("connection") || "").split(",").map(name => name.trim()).filter(Boolean);
+      for (const name of [...connectionHeaders, "content-length", "content-encoding", "connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "proxy-connection", "te", "trailer", "transfer-encoding", "upgrade"]) headers.delete(name);
+      const rewrite = text => {
+        try { return JSON.stringify(restoreToolNames(JSON.parse(text), map)); } catch { return text; }
+      };
+      if (response.headers.get("content-type")?.includes("text/event-stream")) {
+        let pending = "";
+        const encode = new TextEncoder();
+        const line = value => value.startsWith("data:") ? `data: ${rewrite(value.slice(5).trimStart())}` : value;
+        const body = response.body.pipeThrough(new TextDecoderStream()).pipeThrough(new TransformStream({
+          transform(chunk, controller) {
+            pending += chunk;
+            const lines = pending.split("\n");
+            pending = lines.pop();
+            for (const value of lines) controller.enqueue(encode.encode(`${line(value.replace(/\r$/, ""))}\n`));
+          },
+          flush(controller) { if (pending) controller.enqueue(encode.encode(line(pending))); },
+        }));
+        result.response = new Response(body, { status: response.status, statusText: response.statusText, headers });
+      } else {
+        result.response = new Response(rewrite(await response.text()), { status: response.status, statusText: response.statusText, headers });
+      }
+    }
+    return result;
   }
 
   buildUrl(model) {
     const base = this.config.baseUrl;
-    if (isResponsesModel(model)) return `${base}/zen/v1/responses`;
-    if (isMessagesModel(model)) return `${base}/zen/v1/messages`;
-    return `${base}/zen/v1/chat/completions`;
+    if (isResponsesModel(model)) return `${base}${OPENCODE_COMPAT_CONFIG.apiPath}/responses`;
+    if (isMessagesModel(model)) return `${base}${OPENCODE_COMPAT_CONFIG.apiPath}/messages`;
+    return `${base}${OPENCODE_COMPAT_CONFIG.apiPath}/chat/completions`;
   }
 
   buildHeaders(credentials, stream = true, url = "") {
@@ -528,16 +502,16 @@ export class OpenCodeExecutor extends BaseExecutor {
     const isOpencodeDownstream = hasValidOpencodeVersion(downstreamUa);
 
     const session = credentials?.[SESSION_FIELD] || this.prepareRequestCredentials({ credentials })[SESSION_FIELD];
-    const downstreamReq = normalizeRequestId(lower["x-opencode-request"]);
-    const requestId = credentials?.[REQ_FIELD] || downstreamReq || generateRequestId();
 
     const headers = {
       "Content-Type": "application/json",
       "Authorization": "Bearer public",
       "User-Agent": isOpencodeDownstream ? downstreamUa : OPENCODE_UA,
-      "x-opencode-client": lower["x-opencode-client"] || "desktop",
+      "x-opencode-client": lower["x-opencode-client"] || OPENCODE_COMPAT_CONFIG.client,
       "x-opencode-session": session,
-      "x-opencode-request": requestId,
+      "x-opencode-session-id": session,
+      "x-session-affinity": session,
+      "x-session-id": session,
       "x-opencode-project": lower["x-opencode-project"] || "global",
       "Accept": stream ? "text/event-stream" : "*/*",
     };

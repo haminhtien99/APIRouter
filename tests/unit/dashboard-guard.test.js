@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   validateApiKey: vi.fn(),
   getConsistentMachineId: vi.fn(),
   verifyDashboardAuthToken: vi.fn(),
+  verifyLanAuthToken: vi.fn(),
 }));
 
 vi.mock("next/server", () => ({
@@ -31,6 +32,7 @@ vi.mock("@/shared/utils/machineId", () => ({
 
 vi.mock("@/lib/auth/dashboardSession", () => ({
   verifyDashboardAuthToken: mocks.verifyDashboardAuthToken,
+  verifyLanAuthToken: mocks.verifyLanAuthToken,
 }));
 
 const { proxy, __test__ } = await import("../../src/dashboardGuard.js");
@@ -214,6 +216,26 @@ describe("dashboard guard public LLM API access", () => {
     expect(response).toBe(mocks.nextResponse);
     expect(mocks.validateApiKey).toHaveBeenCalledWith("sk-valid");
   });
+
+  it("requires an API key for remote model listings", async () => {
+    const denied = await proxy(request("/v1/models", { host: "router.example.com" }));
+    expect(denied.status).toBe(401);
+    expect(denied.body.error).toBe("API key required for remote API access");
+
+    mocks.validateApiKey.mockResolvedValue(true);
+    const allowed = await proxy(request("/v1/models", {
+      host: "router.example.com",
+      "x-api-key": "sk-valid",
+    }));
+    expect(allowed).toBe(mocks.nextResponse);
+    expect(mocks.validateApiKey).toHaveBeenCalledWith("sk-valid");
+  });
+
+  it("allows loopback clients to list models without a key", async () => {
+    const response = await proxy(localRequest("/v1/models", { host: "127.0.0.1:20127" }));
+    expect(response).toBe(mocks.nextResponse);
+    expect(mocks.validateApiKey).not.toHaveBeenCalled();
+  });
 });
 
 describe("dashboard guard local-only access", () => {
@@ -226,26 +248,26 @@ describe("dashboard guard local-only access", () => {
     mocks.verifyDashboardAuthToken.mockResolvedValue(false);
   });
 
-  it("does not disclose a harness launch credential without dashboard authentication", async () => {
-    const response = await proxy(localRequest("/api/harness", {
+  it("does not disclose host settings without dashboard authentication", async () => {
+    const response = await proxy(localRequest("/api/cli-tools/cowork-settings", {
       host: "127.0.0.1:20228",
     }));
     expect(response.status).toBe(403);
   });
 
-  it("allows the local harness connection when login is disabled", async () => {
+  it("allows local host settings when login is disabled", async () => {
     mocks.getSettings.mockResolvedValue({ requireLogin: false });
-    expect(await proxy(localRequest("/api/harness", {
+    expect(await proxy(localRequest("/api/cli-tools/cowork-settings", {
       host: "127.0.0.1:20228", origin: "http://127.0.0.1:20228",
     }))).toBe(mocks.nextResponse);
   });
 
-  it("rejects remote and cross-site harness connection requests even with login disabled", async () => {
+  it("rejects remote and cross-site host settings requests even with login disabled", async () => {
     mocks.getSettings.mockResolvedValue({ requireLogin: false });
     for (const req of [
-      request("/api/harness", { host: "remote.example" }),
-      localRequest("/api/harness", { origin: "https://remote.example" }),
-      localRequest("/api/harness", { "x-ar-via-proxy": "1" }),
+      request("/api/cli-tools/cowork-settings", { host: "remote.example" }),
+      localRequest("/api/cli-tools/cowork-settings", { origin: "https://remote.example" }),
+      localRequest("/api/cli-tools/cowork-settings", { "x-ar-via-proxy": "1" }),
     ]) {
       expect((await proxy(req)).status).toBe(403);
     }
@@ -329,5 +351,42 @@ describe("dashboard guard helpers", () => {
     });
 
     expect(__test__.extractApiKey(apiRequest)).toBe("header-key");
+  });
+});
+
+describe("dashboard guard dashboard access", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.APIROUTER_PEER_TOKEN = PEER_TOKEN;
+    mocks.getSettings.mockResolvedValue({ requireLogin: true });
+    mocks.getConsistentMachineId.mockResolvedValue("cli-token");
+    mocks.verifyDashboardAuthToken.mockResolvedValue(false);
+    mocks.verifyLanAuthToken.mockResolvedValue(false);
+  });
+
+  it("requires authentication for admin APIs", async () => {
+    const response = await proxy(request("/api/settings", { host: "router.example" }));
+    expect(response.status).toBe(401);
+  });
+
+  it("redirects remote dashboard clients when LAN sharing is disabled", async () => {
+    const response = await proxy(request("/dashboard/endpoint", { host: "192.168.1.60:20127" }));
+    expect(response.status).toBe(307);
+    expect(response.url.searchParams.get("error")).toBe("lan_disabled");
+  });
+
+  it("requires LAN verification even when dashboard login is disabled", async () => {
+    mocks.getSettings.mockResolvedValue({ requireLogin: false, lanSharingEnabled: true });
+    const response = await proxy(request("/dashboard/endpoint", { host: "192.168.1.60:20127" }));
+    expect(response.status).toBe(307);
+    expect(response.url.searchParams.get("step")).toBe("lan");
+  });
+
+  it("does not grant LAN clients access to host settings", async () => {
+    mocks.getSettings.mockResolvedValue({ requireLogin: false, lanSharingEnabled: true });
+    mocks.verifyLanAuthToken.mockResolvedValue(true);
+    const response = await proxy(request("/api/cli-tools/cowork-settings", { host: "192.168.1.60:20127" }));
+    expect(response.status).toBe(403);
+    expect(mocks.verifyLanAuthToken).not.toHaveBeenCalled();
   });
 });

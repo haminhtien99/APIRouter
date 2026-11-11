@@ -76,13 +76,6 @@ const getPageInfo = (pathname) => {
       icon: "dns",
       breadcrumbs: [],
     };
-  if (pathname === "/dashboard/agent")
-    return {
-      title: "Agent",
-      description: "Harness workspace with APIRouter models and combos",
-      icon: "smart_toy",
-      breadcrumbs: [],
-    };
   if (pathname.includes("/combos"))
     return {
       title: "Combos",

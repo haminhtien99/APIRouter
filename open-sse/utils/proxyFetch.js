@@ -1,5 +1,6 @@
 import { Readable } from "stream";
-import { MEMORY_CONFIG } from "../config/runtimeConfig.js";
+import { readFileSync } from "node:fs";
+import { MEMORY_CONFIG, MITM_DNS_BYPASS_CONFIG } from "../config/runtimeConfig.js";
 import { dbg } from "./debugLog.js";
 
 const originalFetch = globalThis.fetch;
@@ -99,14 +100,8 @@ async function tryGotScrapingFetch(url, options) {
 
 // DNS cache — use Map to avoid prototype pollution via malformed hostnames
 const DNS_CACHE = new Map();
-const MITM_BYPASS_HOSTS = [
-  "cloudcode-pa.googleapis.com",
-  "daily-cloudcode-pa.googleapis.com",
-  "api.individual.githubcopilot.com",
-  "q.us-east-1.amazonaws.com",
-  "codewhisperer.us-east-1.amazonaws.com",
-  "api2.cursor.sh",
-];
+let mitmRedirects = new Set();
+let hostsFileCacheExpiry = 0;
 const GOOGLE_DNS_SERVERS = ["8.8.8.8", "8.8.4.4"];
 const HTTPS_PORT = 443;
 const HTTP_SUCCESS_MIN = 200;
@@ -144,8 +139,21 @@ async function resolveRealIP(hostname) {
  */
 function shouldBypassMitmDns(url) {
   try {
-    const hostname = new URL(url).hostname;
-    return MITM_BYPASS_HOSTS.some(host => hostname.includes(host));
+    const { hostname, protocol } = new URL(url);
+    if (protocol !== "https:" || !MITM_DNS_BYPASS_CONFIG.hosts.includes(hostname)) return false;
+    if (Date.now() >= hostsFileCacheExpiry) {
+      mitmRedirects = new Set();
+      hostsFileCacheExpiry = Date.now() + MEMORY_CONFIG.hostsFileCacheTtlMs;
+      const content = readFileSync(MITM_DNS_BYPASS_CONFIG.hostsFile, "utf8");
+      for (const line of content.split(/\r?\n/)) {
+        const [address, ...hosts] = line.split("#", 1)[0].trim().split(/\s+/);
+        if (address === "::1" || address === "0.0.0.0" || address?.startsWith("127.")) {
+          hosts.forEach(host => mitmRedirects.add(host.toLowerCase()));
+        }
+      }
+    }
+    // Normal traffic must use system DNS/native fetch, not a forced public DNS/socket path.
+    return mitmRedirects.has(hostname);
   } catch { return false; }
 }
 
@@ -251,7 +259,7 @@ async function createBypassRequest(parsedUrl, realIP, options) {
         // SNI + cert hostname are validated against the hostname the caller
         // asked for, not the IP we connected to. This keeps the DNS-bypass
         // (avoiding /etc/hosts MITM) while still rejecting on-path attackers
-        // that present a different cert. The MITM_BYPASS_HOSTS targets are
+        // that present a different cert. The configured bypass targets are
         // all public-CA-issued (Google / GitHub / AWS / Cursor) so default
         // verification works without any extra trust store.
         servername: parsedUrl.hostname,
@@ -291,8 +299,9 @@ async function createBypassRequest(parsedUrl, realIP, options) {
   });
 }
 
-export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
+export async function proxyAwareFetch(url, options = {}, proxyOptions = null, directFetch = null) {
   const targetUrl = typeof url === "string" ? url : url.toString();
+  options.signal?.throwIfAborted();
 
   // Vercel relay: forward request via relay headers
   const vercelRelayUrl = normalizeString(proxyOptions?.vercelRelayUrl);
@@ -307,31 +316,12 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
   }
 
   const connectionProxyUrl = resolveConnectionProxyUrl(targetUrl, proxyOptions);
-  const envProxyUrl = connectionProxyUrl ? null : normalizeProxyUrl(getEnvProxyUrl(targetUrl));
+  const envProxyUrl = normalizeProxyUrl(getEnvProxyUrl(targetUrl));
   const proxyUrl = connectionProxyUrl || envProxyUrl;
 
-  // MITM DNS bypass: for known MITM-intercepted hosts, resolve real IP to avoid DNS spoof
-  if (shouldBypassMitmDns(targetUrl)) {
-    if (proxyUrl) {
-      // Proxy resolves DNS externally (not affected by /etc/hosts) — use proxy directly
-      try {
-        const dispatcher = await getDispatcher(proxyUrl);
-        return await originalFetch(url, { ...options, dispatcher });
-      } catch (proxyError) {
-        if (proxyOptions?.strictProxy === true) {
-          throw new Error(`[ProxyFetch] Proxy required but failed (strictProxy=true): ${proxyError.message}`);
-        }
-        console.warn(`[ProxyFetch] Proxy failed, falling back to direct bypass: ${proxyError.message}`);
-      }
-    }
-    // No proxy — manually resolve real IP to bypass DNS spoof
-    try {
-      const parsedUrl = new URL(targetUrl);
-      const realIP = await resolveRealIP(parsedUrl.hostname);
-      if (realIP) return await createBypassRequest(parsedUrl, realIP, options);
-    } catch (error) {
-      console.warn(`[ProxyFetch] MITM bypass failed: ${error.message}`);
-    }
+  if (directFetch) {
+    // The provider transport owns its proxy tunnel; never silently bypass it.
+    return directFetch(url, options, proxyUrl || "");
   }
 
   if (proxyUrl) {
@@ -339,12 +329,23 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
       const dispatcher = await getDispatcher(proxyUrl);
       return await originalFetch(url, { ...options, dispatcher });
     } catch (proxyError) {
-      // If strictProxy is enabled, fail hard instead of falling back to direct
+      options.signal?.throwIfAborted();
       if (proxyOptions?.strictProxy === true) {
-        throw new Error(`[ProxyFetch] Proxy required but failed (strictProxy=true): ${proxyError.message}`);
+        throw new Error("[ProxyFetch] Required proxy failed", { cause: proxyError });
       }
       console.warn(`[ProxyFetch] Proxy failed, falling back to direct: ${proxyError.message}`);
-      return originalFetch(url, options);
+    }
+  }
+
+  // MITM DNS bypass: for known MITM-intercepted hosts, resolve real IP to avoid DNS spoof
+  if (shouldBypassMitmDns(targetUrl)) {
+    // No proxy — manually resolve real IP to bypass DNS spoof
+    try {
+      const parsedUrl = new URL(targetUrl);
+      const realIP = await resolveRealIP(parsedUrl.hostname);
+      if (realIP) return await createBypassRequest(parsedUrl, realIP, options);
+    } catch (error) {
+      console.warn(`[ProxyFetch] MITM bypass failed: ${error.message}`);
     }
   }
 

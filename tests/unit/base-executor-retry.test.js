@@ -1,5 +1,5 @@
 // Locks BaseExecutor.execute retry/fallback behavior (docs 04 GAP #1, docs 11 §7).
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // Mock the network layer so we can script upstream responses.
 const fetchMock = vi.fn();
@@ -22,8 +22,17 @@ function makeExec(config) {
 const creds = { apiKey: "k" };
 
 beforeEach(() => fetchMock.mockReset());
+afterEach(() => vi.useRealTimers());
 
 describe("BaseExecutor.execute — retry by status (config-driven)", () => {
+  it("returns an invalid request without retrying the same payload", async () => {
+    const ex = makeExec({ baseUrl: "https://x/api" });
+    fetchMock.mockResolvedValueOnce(res(400));
+    const out = await ex.execute({ model: "m", body: {}, stream: false, credentials: creds });
+    expect(out.response.status).toBe(400);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("retries 502 `attempts` times then succeeds", async () => {
     const ex = makeExec({ baseUrl: "https://x/api", retry: { 502: { attempts: 3, delayMs: 0 } } });
     fetchMock
@@ -59,6 +68,62 @@ describe("BaseExecutor.execute — baseUrls fallback", () => {
 });
 
 describe("BaseExecutor.execute — network error retry/fallback", () => {
+  it("does not retry client cancellation with a custom Error reason", async () => {
+    const ex = makeExec({ baseUrl: "https://x/api" });
+    const ctrl = new AbortController();
+    const reason = new Error("client disconnected");
+    fetchMock.mockImplementationOnce(async () => {
+      ctrl.abort(reason);
+      throw reason;
+    });
+    await expect(ex.execute({
+      model: "m", body: {}, stream: true, credentials: creds, signal: ctrl.signal,
+    })).rejects.toBe(reason);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not start an upstream request when already cancelled", async () => {
+    const ex = makeExec({ baseUrl: "https://x/api" });
+    const signal = AbortSignal.abort(new Error("cancelled"));
+    await expect(ex.execute({
+      model: "m", body: {}, stream: true, credentials: creds, signal,
+    })).rejects.toThrow("cancelled");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("cancels retry backoff immediately and releases the failed body", async () => {
+    vi.useFakeTimers();
+    const ex = makeExec({ baseUrl: "https://x/api", retry: { 503: { attempts: 1, delayMs: 30000 } } });
+    const ctrl = new AbortController();
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    fetchMock.mockResolvedValueOnce({ ...res(503), body: { cancel } });
+    const result = ex.execute({
+      model: "m", body: {}, stream: true, credentials: creds, signal: ctrl.signal,
+    });
+    const rejected = expect(result).rejects.toThrow();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(cancel).toHaveBeenCalledOnce();
+    ctrl.abort(new Error("client disconnected"));
+    await rejected;
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("retries an internal header timeout even when its reason is an Error", async () => {
+    vi.useFakeTimers();
+    const ex = makeExec({
+      baseUrl: "https://x/api", timeoutMs: 10, retry: { 502: { attempts: 1, delayMs: 0 } },
+    });
+    fetchMock.mockImplementationOnce((_url, { signal }) => new Promise((_, reject) => {
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+    })).mockResolvedValueOnce(res(200));
+    const result = ex.execute({ model: "m", body: {}, stream: true, credentials: creds });
+    await vi.advanceTimersByTimeAsync(11);
+    expect((await result).response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("maps network exception to 502 retry config", async () => {
     const ex = makeExec({ baseUrl: "https://x/api", retry: { 502: { attempts: 1, delayMs: 0 } } });
     fetchMock

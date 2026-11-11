@@ -35,20 +35,12 @@ function getToastStyle(type) {
 export default function DashboardLayout({ children, initialCollapsed = false }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const pathname = usePathname();
-  const fullHeight = ["/dashboard/basic-chat", "/dashboard/agent"].includes(pathname);
+  const fullHeight = pathname === "/dashboard/basic-chat";
   const notifications = useNotificationStore((state) => state.notifications);
   const removeNotification = useNotificationStore((state) => state.removeNotification);
   const toggleSidebar = useSidebarStore((state) => state.toggleSidebar);
-  const setCollapsed = useSidebarStore((state) => state.setCollapsed);
 
-  // When on Agent page, auto-collapse APIRouter sidebar to Activity Bar mode
-  useEffect(() => {
-    if (pathname === "/dashboard/agent") {
-      setCollapsed(true);
-    }
-  }, [pathname, setCollapsed]);
-
-  // Keyboard shortcut Ctrl+B / Cmd+B to toggle sidebar (inspired by harness & VS Code)
+  // Keyboard shortcut Ctrl+B / Cmd+B to toggle sidebar.
   useEffect(() => {
     const handleKeyDown = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key?.toLowerCase() === "b") {

@@ -3,7 +3,7 @@ import REGISTRY from "../providers/registry/index.js";
 // PROVIDER_MODELS now built from providers/registry (transport + models co-located)
 import { PROVIDER_MODELS } from "../providers/index.js";
 import { modelQuotaFamily, modelStrip, modelTargetFormat, modelSupportedFormats, normalizeModelId } from "../providers/models/schema.js";
-import { CODEX_REVIEW_SUFFIX, isMuseSparkModel } from "../providers/models/helpers.js";
+import { CODEX_REVIEW_SUFFIX, isMuseSparkModel, isUnionAlphaModel } from "../providers/models/helpers.js";
 import { FORMATS } from "../translator/formats.js";
 export { PROVIDER_MODELS };
 
@@ -53,8 +53,12 @@ export function findModelName(aliasOrId, modelId) {
 }
 
 export function getModelTargetFormat(aliasOrId, modelId) {
-  if ((!aliasOrId || aliasOrId === "oc" || aliasOrId === "opencode" || aliasOrId === "ocg" || aliasOrId === "opencode-go") && isMuseSparkModel(modelId)) {
+  const isOpencode = !aliasOrId || aliasOrId === "oc" || aliasOrId === "opencode" || aliasOrId === "ocg" || aliasOrId === "opencode-go";
+  if (isOpencode && isMuseSparkModel(modelId)) {
     return FORMATS.OPENAI_RESPONSES;
+  }
+  if (isOpencode && isUnionAlphaModel(modelId)) {
+    return FORMATS.CLAUDE;
   }
   const models = PROVIDER_MODELS[aliasOrId];
   if (!models) return null;

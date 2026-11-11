@@ -17,6 +17,10 @@ const EXCLUDE_PATTERNS = [
   "@img",           // Sharp image processing (not needed with unoptimized images)
   "sharp",          // Sharp core lib (not needed with unoptimized images)
   "detect-libc",    // Sharp dependency
+  // npm installs wreq-js and its optional native binding for the destination.
+  // Never shadow that installation with the build host's traced package/binding.
+  "wreq-js",
+  "@wreq-js",
   ".env",           // Environment files
   ".env.local",
   ".env.*.local",

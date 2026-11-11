@@ -25,3 +25,11 @@ export function isMuseSparkModel(modelId) {
   const base = clean.includes("/") ? clean.split("/").pop() : clean;
   return /^muse[-_]?spark(?:$|[-_:.\s])/i.test(base);
 }
+
+// Retired OpenCode Free id kept routable via passthroughModels.
+export function isUnionAlphaModel(modelId) {
+  if (!modelId || typeof modelId !== "string") return false;
+  const clean = modelId.replace(/\([^()]+\)\s*$/, "").trim();
+  const base = clean.includes("/") ? clean.split("/").pop() : clean;
+  return base === "union-alpha";
+}
