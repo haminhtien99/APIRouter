@@ -276,6 +276,7 @@ export default function ProviderLimits() {
         plan: data.plan || null,
         message: data.message || null,
         raw: data,
+        quotaNotice: provider === "antigravity" ? data.quotaNotice : null,
       };
 
       setQuotaData((prev) => ({
@@ -1266,6 +1267,14 @@ export default function ProviderLimits() {
                     <p className="text-xs text-text-muted">{quota.message}</p>
                   </div>
                 ) : (
+                  <>
+                  {conn.provider === "antigravity" && (
+                    <p className="px-1 pb-2 text-[10px] text-text-muted">
+                      {visibleQuotas.some(row => row.windowUnconfirmed) && "*5h: upstream window unconfirmed. Ranges summarize models, not a shared pool."}
+                      {quota?.quotaNotice && <span className="block text-amber-600">{quota.quotaNotice}</span>}
+                      {!visibleQuotas.length && <span className="block">No quota data available.</span>}
+                    </p>
+                  )}
                   <QuotaTable
                     quotas={visibleQuotas}
                     compact
@@ -1275,6 +1284,7 @@ export default function ProviderLimits() {
                     }
                     onHideQuota={(quotaRow) => handleHideQuota(conn.provider, quotaRow)}
                   />
+                  </>
                 )}
                 {quota?.message && !error && !isLoading && (
                   <p className="mt-2 px-1 text-[10px] leading-relaxed text-text-muted">

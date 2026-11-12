@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { formatResetTime, getRemainingPercentage } from "./utils";
+import { formatResetTime, getRemainingPercentage, getAntigravityQuotaState } from "./utils";
 
 const PAGE_SIZE = 10;
 
@@ -167,10 +167,14 @@ export default function QuotaTable({
               </h3>
             )}
             {rows.map((quota) => {
+          const quotaState = getAntigravityQuotaState(quota);
+          const isUnknown = quotaState === "Unknown";
           const isUnlimited = quota.unlimited === true;
           const isCreditBalance = quota.isCreditBalance === true;
           const colors = isCreditBalance
             ? { text: "text-blue-600 dark:text-blue-400", bg: "bg-blue-500", bgLight: "bg-blue-500/10", emoji: "💰" }
+            : isUnknown || quotaState === "Stale"
+            ? { text: "text-text-muted", bg: "bg-gray-400", bgLight: "bg-gray-400/10", emoji: "⚪" }
             : getColorClasses(quota.remaining);
           const countdown = formatResetTime(quota.resetAt);
           const resetDisplay = formatResetTimeDisplay(quota.resetAt);
@@ -186,16 +190,16 @@ export default function QuotaTable({
               className={`flex items-center gap-2 border-b border-black/5 dark:border-white/5 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors ${cellPad}`}
             >
               {/* Name */}
-              <div className="flex w-36 min-w-0 items-center gap-1.5">
+              <div className={`flex ${quota.percentageOnly ? "w-24 sm:w-36" : "w-36"} min-w-0 items-center gap-1.5`}>
                 <span className="text-[10px] shrink-0">{colors.emoji}</span>
-                <span className={`${nameText} font-medium text-text-primary truncate`} title={quota.name}>
-                  {quota.name}
+                <span className={`${nameText} font-medium text-text-primary truncate`} title={quota.quotaDescription ? `${quota.name} · ${quota.quotaDescription}` : quota.name}>
+                  {quota.name}{quota.windowUnconfirmed ? "*" : ""}
                 </span>
               </div>
 
               {/* Progress + used/total */}
               <div className={`min-w-0 flex-1 ${compact ? "space-y-1" : "space-y-1.5"}`}>
-                {!isUnlimited && !isCreditBalance && (
+                {!isUnknown && !isUnlimited && !isCreditBalance && (
                 <div className={`${compact ? "h-1" : "h-1.5"} rounded-full overflow-hidden border ${colors.bgLight} ${
                   quota.remaining === 0 ? "border-black/10 dark:border-white/10" : "border-transparent"
                 }`}>
@@ -210,21 +214,25 @@ export default function QuotaTable({
                   <span
                     className="text-text-muted truncate"
                     title={
-                      isUnlimited
+                      quota.percentageOnly
+                        ? quota.quotaDescription
+                        : isUnlimited
                         ? `${quota.used.toLocaleString()} used · Unlimited`
                         : isCreditBalance
                         ? `Credit balance: ${quota.total.toFixed(2)} ${quota.currency || ""}`
                         : `${quota.used.toLocaleString()} / ${quota.total > 0 ? quota.total.toLocaleString() : "∞"}`
                     }
                   >
-                    {isUnlimited
+                    {quota.percentageOnly
+                      ? (quotaState === "Current" ? (quota.unknownCount ? `${quota.unknownCount} unknown` : quota.windowUnconfirmed ? "Model summary" : "Group quota") : quotaState)
+                      : isUnlimited
                       ? `${quota.used.toLocaleString()} used · Unlimited`
                       : isCreditBalance
                       ? `Credit: ${quota.total.toFixed(2)} ${quota.currency || ""}`
                       : `${quota.used.toLocaleString()} / ${quota.total > 0 ? quota.total.toLocaleString() : "∞"}`}
                   </span>
                   <span className={`font-medium ${isUnlimited ? "text-green-600 dark:text-green-400" : isCreditBalance ? "text-blue-600 dark:text-blue-400" : colors.text} shrink-0`}>
-                    {isUnlimited ? "Unlimited" : isCreditBalance ? "" : `${quota.remaining}%`}
+                    {isUnknown ? "Unknown" : isUnlimited ? "Unlimited" : isCreditBalance ? "" : `${quota.remainingRange ? quota.remainingRange.map(v => Math.round(v)).join("–") : quota.remaining}%${quotaState === "Stale" ? " (stale)" : ""}`}
                   </span>
                 </div>
               </div>
@@ -254,7 +262,7 @@ export default function QuotaTable({
                     </div>
                   )
                 ) : (
-                  <div className={`${resetPrimary} text-text-muted italic`}>N/A</div>
+                  <div className={`${resetPrimary} text-text-muted italic`}>{quota.resetVaries ? "Varies" : "N/A"}</div>
                 )}
               </div>
 

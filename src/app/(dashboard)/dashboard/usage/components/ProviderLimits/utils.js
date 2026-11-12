@@ -300,6 +300,7 @@ export function calculatePercentage(used, total) {
  * @returns {number} Remaining percentage (0-100)
  */
 export function getRemainingPercentage(quota) {
+  if (quota?.percentageOnly && quota.remainingPercentage == null) return null;
   if (quota?.remainingPercentage !== undefined) {
     return Math.max(0, Math.min(100, Math.round(quota.remainingPercentage)));
   }
@@ -314,6 +315,66 @@ export function getRemainingPercentage(quota) {
   }
 
   return calculatePercentage(quota?.used, quota?.total);
+}
+
+// Compact display only; keep the upstream model/bucket records unchanged.
+export function groupAntigravityQuotas(quotas = {}) {
+  const entries = Object.entries(quotas || {}).filter(([, q]) => q && typeof q === "object");
+  const result = [];
+  for (const [family, group] of [["gemini", "Gemini"], ["claude", "Claude and GPT"]]) {
+    const belongs = key => family === "gemini" ? key.startsWith("gemini")
+      : key.startsWith("claude") || key.startsWith("gpt");
+    const familyEntries = entries.filter(([key]) => belongs(key));
+    const explicit = window => familyEntries.filter(([, q]) =>
+      q.source === "retrieveUserQuotaSummary" && q.window === window);
+    const models = familyEntries.filter(([key]) => /^(gemini|claude|gpt)-/.test(key) && !key.includes("image"));
+    for (const window of ["5h", "weekly"]) {
+      const buckets = explicit(window);
+      const members = buckets.length ? buckets : window === "5h" ? models : [];
+      if (!members.length) continue;
+      const values = members.map(([, q]) => q.remainingPercentage);
+      const known = values.filter(v => typeof v === "number" && Number.isFinite(v));
+      const min = known.length ? Math.min(...known) : null;
+      const max = known.length ? Math.max(...known) : null;
+      const resets = [...new Set(members.map(([, q]) => q.resetAt || null))];
+      const observations = members.map(([, q]) => Date.parse(q.observedAt));
+      const unknownCount = values.length - known.length;
+      const windowUnconfirmed = !buckets.length;
+      result.push({
+        name: window === "weekly" ? "Weekly" : "5h",
+        group,
+        modelKey: window === "weekly" ? `${family === "claude" ? "claude_gpt" : family}_weekly` : family,
+        percentageOnly: true,
+        scope: windowUnconfirmed ? "model-summary" : "group",
+        window: windowUnconfirmed ? "unknown" : window,
+        windowUnconfirmed,
+        remainingPercentage: min,
+        remainingRange: min !== max ? [min, max] : null,
+        unknownCount,
+        memberCount: members.length,
+        resetAt: resets.length === 1 ? resets[0] : null,
+        resetVaries: resets.length > 1,
+        observedAt: observations.every(Number.isFinite)
+          ? new Date(Math.min(...observations)).toISOString() : null,
+        // A passed reset in any member makes the summary stale, even if resets differ.
+        staleResetAt: members.map(([, q]) => q.resetAt).filter(Boolean).sort()[0] || null,
+        quotaDescription: windowUnconfirmed
+          ? "5h is a display label; upstream reports per-model quota with an unknown window. A range is not a shared pool."
+          : `Upstream ${window} group bucket${members.length > 1 ? "s; range across buckets" : ""}.`,
+      });
+    }
+  }
+  return result;
+}
+
+export function getAntigravityQuotaState(quota, now = Date.now()) {
+  if (!quota?.percentageOnly) return null;
+  if (quota.remainingPercentage == null) return "Unknown";
+  const observed = Date.parse(quota.observedAt);
+  const reset = Date.parse(quota.staleResetAt || quota.resetAt);
+  if (!Number.isFinite(observed) || now - observed > 180000
+    || (Number.isFinite(reset) && reset <= now)) return "Stale";
+  return "Current";
 }
 
 export function getQuotaVisibilityKey(quota) {
@@ -379,67 +440,7 @@ export function parseQuotaData(provider, data) {
         break;
 
       case "antigravity":
-        if (data.quotas) {
-          const entries = Object.entries(data.quotas);
-          const geminiModels = entries.filter(([k]) => k.startsWith("gemini-") && !k.includes("image"));
-          const claudeGptModels = entries.filter(([k]) => k.startsWith("claude-") || k.startsWith("gpt-"));
-          const geminiWeekly = data.quotas.gemini_weekly;
-          const claudeGptWeekly = data.quotas.claude_gpt_weekly;
-
-          if (geminiModels.length > 0) {
-            const rep = geminiModels.reduce((min, cur) =>
-              (cur[1].remainingPercentage ?? 100) < (min[1].remainingPercentage ?? 100) ? cur : min
-            )[1];
-            normalizedQuotas.push({
-              name: "5h",
-              group: "Gemini models",
-              modelKey: "gemini",
-              used: rep.used || 0,
-              total: rep.total || 0,
-              resetAt: rep.resetAt || null,
-              remainingPercentage: rep.remainingPercentage,
-            });
-          }
-
-          if (geminiWeekly) {
-            normalizedQuotas.push({
-              name: "Weekly",
-              group: "Gemini models",
-              modelKey: "gemini_weekly",
-              used: geminiWeekly.used || 0,
-              total: geminiWeekly.total || 0,
-              resetAt: geminiWeekly.resetAt || null,
-              remainingPercentage: geminiWeekly.remainingPercentage,
-            });
-          }
-
-          if (claudeGptModels.length > 0) {
-            const rep = claudeGptModels.reduce((min, cur) =>
-              (cur[1].remainingPercentage ?? 100) < (min[1].remainingPercentage ?? 100) ? cur : min
-            )[1];
-            normalizedQuotas.push({
-              name: "5h",
-              group: "Claude and GPT models",
-              modelKey: "claude",
-              used: rep.used || 0,
-              total: rep.total || 0,
-              resetAt: rep.resetAt || null,
-              remainingPercentage: rep.remainingPercentage,
-            });
-          }
-
-          if (claudeGptWeekly) {
-            normalizedQuotas.push({
-              name: "Weekly",
-              group: "Claude and GPT models",
-              modelKey: "claude_gpt_weekly",
-              used: claudeGptWeekly.used || 0,
-              total: claudeGptWeekly.total || 0,
-              resetAt: claudeGptWeekly.resetAt || null,
-              remainingPercentage: claudeGptWeekly.remainingPercentage,
-            });
-          }
-        }
+        normalizedQuotas.push(...groupAntigravityQuotas(data.quotas));
         break;
 
       case "codex":
@@ -689,7 +690,7 @@ export function parseQuotaData(provider, data) {
     return normalizedQuotas;
   }
 
-  // Antigravity rows are already ordered by group: Gemini 5h/weekly, then Claude/GPT 5h/weekly.
+  // Preserve Antigravity source entries, even when their values coincide.
   if (provider === "antigravity") return normalizedQuotas;
 
   // Sort quotas according to PROVIDER_MODELS order

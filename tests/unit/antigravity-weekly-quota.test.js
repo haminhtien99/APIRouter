@@ -150,7 +150,7 @@ describe("parseWeeklyQuotaSummary", () => {
         }],
       }],
     };
-    expect(parseWeeklyQuotaSummary(data)).toEqual({});
+    expect(parseWeeklyQuotaSummary(data).gemini_weekly.remainingPercentage).toBeNull();
   });
 
   it("ignores groups that don't match known families", () => {
@@ -328,7 +328,7 @@ describe("weekly quota isolation from existing quota", () => {
     expect(result.message).toBeUndefined();
   });
 
-  it("free-tier accounts only show weekly quotas, not per-model short-window quotas", async () => {
+  it("free-tier preserves model data without inferring a short window", async () => {
     proxyAwareFetch.mockImplementation(async (url) => {
       if (url.includes(":loadCodeAssist")) {
         return {
@@ -387,11 +387,11 @@ describe("weekly quota isolation from existing quota", () => {
     const { getAntigravityUsage } = await import("../../open-sse/services/usage/google.js");
     const result = await getAntigravityUsage("token", {});
 
-    // Per-model quotas should be absent (free-tier accounts skip model parsing)
-    expect(result.quotas["gemini-3.8-flash-high"]).toBeUndefined();
-    expect(result.quotas["claude-sonnet-4-6"]).toBeUndefined();
+    // Tier does not establish a quota window.
+    expect(result.quotas["gemini-3.8-flash-high"].window).toBe("unknown");
+    expect(result.quotas["claude-sonnet-4-6"].remainingPercentage).toBeUndefined();
 
-    // Only weekly quotas should appear
+    // Explicit weekly buckets are retained independently.
     expect(result.quotas.gemini_weekly).toMatchObject({
       used: 0,
       total: 1000,
@@ -404,7 +404,7 @@ describe("weekly quota isolation from existing quota", () => {
     });
   });
 
-  it("reconciles weekly quota to 0% when all paid-tier family models are exhausted", async () => {
+  it("does not rewrite weekly data from missing per-model fractions", async () => {
     proxyAwareFetch.mockImplementation(async (url) => {
       if (url.includes(":loadCodeAssist")) {
         return {
@@ -451,14 +451,14 @@ describe("weekly quota isolation from existing quota", () => {
     const { getAntigravityUsage } = await import("../../open-sse/services/usage/google.js");
     const result = await getAntigravityUsage("token", {});
 
-    // Per-model quota should show exhausted
-    expect(result.quotas["gemini-3.8-flash-high"].remainingPercentage).toBe(0);
-    // Weekly quota should be reconciled to 0% with the family reset time
+    // Missing is unknown, not exhausted.
+    expect(result.quotas["gemini-3.8-flash-high"].remainingPercentage).toBeUndefined();
+    // Weekly values and reset remain as returned by the summary.
     expect(result.quotas.gemini_weekly).toMatchObject({
-      used: 1000,
+      used: 0,
       total: 1000,
-      remainingPercentage: 0,
-      resetAt: "2026-09-13T12:00:00.000Z",
+      remainingPercentage: 100,
+      resetAt: "2026-09-15T00:00:00.000Z",
     });
   });
 });

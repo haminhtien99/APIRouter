@@ -152,6 +152,29 @@ describe("Antigravity quota-aware routing", () => {
     expect(getAntigravityQuotaCache().get("ag-error-response")).toBe(cached);
   });
 
+  it("preserves known model cache when only the model quota source failed", async () => {
+    const cached = { [MODEL]: { remainingPercentage: 0, resetAt: FUTURE_RESET } };
+    getAntigravityQuotaCache().set("ag-model-source-error", cached);
+    mocks.getAntigravityUsage.mockResolvedValue({ quotas: {}, quotaSources: { models: "error", weekly: "ok" } });
+    await expect(refreshAntigravityQuota("ag-model-source-error", "token", {})).resolves.toBeNull();
+    expect(getAntigravityQuotaCache().get("ag-model-source-error")).toBe(cached);
+  });
+
+  it.each([undefined, null])("treats missing model percentage %s as unknown, not exhausted", async (remainingPercentage) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-26T00:00:00.000Z"));
+    const id = `ag-unknown-percentage-${String(remainingPercentage)}`;
+    mocks.getAntigravityUsage.mockResolvedValue({ quotas: {
+      [MODEL]: { remainingPercentage, resetAt: FUTURE_RESET },
+    } });
+    try {
+      await expect(handleAntigravityQuotaError(id, 429, MODEL, "token", {})).resolves.toBeNull();
+      await expect(handleAntigravityQuotaError(id, 429, MODEL, "token", {})).resolves.toBeNull();
+      await expect(handleAntigravityQuotaError(id, 429, MODEL, "token", {}))
+        .resolves.toBe(Date.parse("2026-08-26T00:15:00.000Z"));
+    } finally { vi.useRealTimers(); }
+  });
+
   it("throttles failed refresh attempts for 30 seconds", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-26T00:00:00.000Z"));

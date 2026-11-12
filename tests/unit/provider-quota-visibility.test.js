@@ -33,9 +33,9 @@ describe("provider quota visibility", () => {
       "claude",
     ]);
     expect(quotas[0].name).toBe("5h");
-    expect(quotas[0].group).toBe("Gemini models");
+    expect(quotas[0].group).toBe("Gemini");
     expect(quotas[1].name).toBe("5h");
-    expect(quotas[1].group).toBe("Claude and GPT models");
+    expect(quotas[1].group).toBe("Claude and GPT");
   });
 
   it("shows all quotas by default and hides configured provider rows", () => {

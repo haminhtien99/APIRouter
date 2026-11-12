@@ -62,30 +62,44 @@ export function parseWeeklyQuotaSummary(data) {
 
       // Identify weekly buckets by checking bucketId + displayName for "weekly"
       const bucketText = `${bucket.bucketId || ""} ${bucket.displayName || ""}`.toLowerCase();
-      if (!bucketText.includes("weekly")) continue;
+      const window = /\bweekly\b/.test(bucketText.replace(/[_-]/g, " ")) ? "weekly"
+        : /\b(?:5h|5 hour(?:s)?)\b/.test(bucketText.replace(/[_-]/g, " ")) ? "5h" : null;
+      if (!window) continue;
 
       // Skip disabled buckets
       if (bucket.disabled === true) continue;
 
-      const remainingFraction = Number(bucket.remainingFraction);
-      if (!Number.isFinite(remainingFraction)) continue;
+      const remainingFraction = bucket.remainingFraction;
+      const validFraction = typeof remainingFraction === "number" && Number.isFinite(remainingFraction)
+        && remainingFraction >= 0 && remainingFraction <= 1;
 
       // Match group to a known family
       for (const matcher of GROUP_MATCHERS) {
         if (matcher.pattern.test(displayName)) {
           const total = 1000;
-          const remaining = Math.round(total * remainingFraction);
-          const used = Math.max(0, total - remaining);
+          const remaining = validFraction ? Math.round(total * remainingFraction) : null;
+          const used = remaining === null ? null : Math.max(0, total - remaining);
 
-          result[matcher.key] = {
+          const baseKey = window === "weekly" ? matcher.key : matcher.key.replace("_weekly", "_5h");
+          // Preserve distinct upstream buckets, even when their values match.
+          let key = baseKey;
+          let suffix = 2;
+          while (result[key]) key = `${baseKey}_${suffix++}`;
+          result[key] = {
             used,
             total,
             resetAt: parseResetTime(bucket.resetTime),
-            remainingPercentage: remainingFraction * 100,
+            remainingPercentage: validFraction ? remainingFraction * 100 : null,
             unlimited: false,
-            displayName: matcher.displayName,
+            source: "retrieveUserQuotaSummary",
+            scope: "group",
+            window,
+            bucketId: bucket.bucketId || null,
+            percentageOnly: true,
+            observedAt: new Date().toISOString(),
+            displayName: window === "weekly" ? matcher.displayName : matcher.displayName.replace("Weekly", "5h"),
           };
-          break; // first matching bucket per family wins
+          break; // Group family matched; retain every independently identified bucket.
         }
       }
     }
@@ -98,6 +112,10 @@ export function parseWeeklyQuotaSummary(data) {
  * Fetch weekly quota summary — cached, deduped, never throws.
  */
 export async function fetchAntigravityWeeklyQuota(accessToken, projectId, proxyOptions = null) {
+  return (await fetchAntigravityWeeklyQuotaResult(accessToken, projectId, proxyOptions)).quotas;
+}
+
+export async function fetchAntigravityWeeklyQuotaResult(accessToken, projectId, proxyOptions = null) {
   const key = cacheKey(accessToken, projectId);
 
   // Serve in-flight or cached
@@ -108,7 +126,7 @@ export async function fetchAntigravityWeeklyQuota(accessToken, projectId, proxyO
   const promise = (async () => {
     try {
       const url = WEEKLY_CONFIG.quotaSummaryApiUrl;
-      if (!url) return {};
+      if (!url) return { quotas: {}, status: "unavailable" };
 
       const response = await fetchWithTimeout(url, {
         method: "POST",
@@ -124,12 +142,13 @@ export async function fetchAntigravityWeeklyQuota(accessToken, projectId, proxyO
         }),
       }, 10000, proxyOptions);
 
-      if (!response.ok) return {};
+      if (!response.ok) return { quotas: {}, status: "error" };
 
       const data = await response.json();
-      return parseWeeklyQuotaSummary(data);
+      const quotas = parseWeeklyQuotaSummary(data);
+      return { quotas, status: Object.keys(quotas).length ? "ok" : "unavailable" };
     } catch {
-      return {};
+      return { quotas: {}, status: "error" };
     }
   })();
 
@@ -137,7 +156,7 @@ export async function fetchAntigravityWeeklyQuota(accessToken, projectId, proxyO
 
   try {
     const result = await promise;
-    if (result && Object.keys(result).length > 0) {
+    if (result && Object.keys(result.quotas).length > 0) {
       weeklyCache.set(key, { result, expiresAt: Date.now() + WEEKLY_CACHE_TTL_MS });
     } else {
       weeklyCache.delete(key);
@@ -145,6 +164,6 @@ export async function fetchAntigravityWeeklyQuota(accessToken, projectId, proxyO
     return result;
   } catch {
     weeklyCache.delete(key);
-    return {};
+    return { quotas: {}, status: "error" };
   }
 }

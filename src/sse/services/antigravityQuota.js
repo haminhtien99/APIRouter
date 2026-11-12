@@ -116,7 +116,7 @@ async function _doRefresh(connectionId, accessToken, providerSpecificData, now) 
     const usage = await getAntigravityUsage(accessToken, providerSpecificData, proxyOptions);
     // 401/403 usage responses can contain an empty quotas object plus message.
     // Preserve known cache instead of replacing it with an upstream error response.
-    if (!usage?.quotas || usage.message) return null;
+    if (!usage?.quotas || usage.message || usage.quotaSources?.models === "error") return null;
 
     // Update in-memory cache. Caller logs CACHE_BLOCK only if requested model is exhausted.
     // Strike blocks are re-asserted after every refresh so an optimistic
@@ -149,7 +149,7 @@ export async function handleAntigravityQuotaError(connectionId, status, model, a
   // well (see #3561 — "skip exhausted account/model quota before upstream
   // retry" was motivated by 409/429 pairs), and poisoning by transient 409s
   // requires 3 of them inside 60 seconds on the same pair.
-  if (!quota || quota.remainingPercentage > 0) {
+  if (!quota || quota.remainingPercentage !== 0) {
     const key = `${connectionId}|${model}`;
     const now = Date.now();
     const strike = strikeCounts.get(key);

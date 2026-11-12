@@ -5,7 +5,7 @@
 import { CLIENT_METADATA } from "../../config/appConstants.js";
 import { ANTIGRAVITY_IDE_USER_AGENT, ANTIGRAVITY_IDE_VERSION, ANTIGRAVITY_OAUTH_CLIENT } from "../../providers/shared.js";
 import { U, parseResetTime, normalizeCloudCodeProjectId, fetchWithTimeout } from "./shared.js";
-import { fetchAntigravityWeeklyQuota } from "./antigravity-weekly.js";
+import { fetchAntigravityWeeklyQuotaResult } from "./antigravity-weekly.js";
 
 // Antigravity API config (from Quotio) — urls from registry, oauth client + dynamic UA kept here
 const ANTIGRAVITY_CONFIG = {
@@ -135,38 +135,24 @@ export async function getAntigravityUsage(accessToken, providerSpecificData, pro
       body: JSON.stringify({
         ...(projectId ? { project: projectId } : {})
       }),
-    }, 10000, proxyOptions);
+    }, 10000, proxyOptions).catch(() => ({ ok: false, status: "network error" }));
 
-    if (response.status === 403) {
-      return {
-        message: "Antigravity quota API access forbidden. Chat may still work.",
-        quotas: {}
-      };
+    let data = {};
+    let modelStatus = response.ok ? "ok" : "error";
+    if (response.ok) {
+      try {
+        const payload = await response.json();
+        if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+          modelStatus = "error";
+        } else {
+          data = payload;
+        }
+      } catch { modelStatus = "error"; }
     }
-
-    if (response.status === 401) {
-      return {
-        message: "Antigravity quota API authentication expired. Chat may still work.",
-        quotas: {}
-      };
-    }
-
-    if (!response.ok) {
-      throw new Error(`Antigravity API error: ${response.status}`);
-    }
-
-    const data = await response.json();
     const quotas = {};
 
-    // Detect tier: free-tier accounts only have weekly quotas (no separate 5h window).
-    // On free-tier, fetchAvailableModels returns misleading per-model quota info
-    // (missing remainingFraction defaults to 0, or reflects the weekly limit not a 5h window).
-    const paidTierId = subscriptionInfo?.paidTier?.id;
-    const isFreeTier = !paidTierId || paidTierId === "free-tier";
-
-    // Parse model quotas only for paid-tier accounts.
-    // Free-tier accounts skip this — their only meaningful quota is the weekly limit.
-    if (!isFreeTier && data.models) {
+    // quotaInfo is per model. Neither tier nor resetTime establishes a window.
+    if (data.models) {
       // Filter only recommended/important models (must match PROVIDER_MODELS ag ids)
       const importantModels = [
         'gemini-3.8-flash-high',
@@ -191,7 +177,7 @@ export async function getAntigravityUsage(accessToken, providerSpecificData, pro
 
       for (const [modelKey, info] of Object.entries(data.models)) {
         // Skip models without quota info
-        if (!info.quotaInfo) {
+        if (!info || typeof info !== "object" || !info.quotaInfo) {
           continue;
         }
 
@@ -200,13 +186,15 @@ export async function getAntigravityUsage(accessToken, providerSpecificData, pro
           continue;
         }
 
-        const remainingFraction = info.quotaInfo.remainingFraction || 0;
-        const remainingPercentage = remainingFraction * 100;
+        const rawFraction = info.quotaInfo.remainingFraction;
+        const remainingFraction = typeof rawFraction === "number" && Number.isFinite(rawFraction)
+          && rawFraction >= 0 && rawFraction <= 1 ? rawFraction : null;
+        const remainingPercentage = remainingFraction === null ? undefined : remainingFraction * 100;
 
         // Convert percentage to used/total for UI compatibility
         const total = 1000; // Normalized base
-        const remaining = Math.round(total * remainingFraction);
-        const used = total - remaining;
+        const remaining = remainingFraction === null ? null : Math.round(total * remainingFraction);
+        const used = remaining === null ? null : total - remaining;
 
         // Use modelKey as key (matches PROVIDER_MODELS id)
         quotas[modelKey] = {
@@ -216,64 +204,31 @@ export async function getAntigravityUsage(accessToken, providerSpecificData, pro
           remainingPercentage,
           unlimited: false,
           displayName: info.displayName || modelKey,
+          source: "fetchAvailableModels",
+          scope: "model",
+          window: "unknown",
+          percentageOnly: true,
+          observedAt: new Date().toISOString(),
         };
       }
     }
 
-    // Best-effort weekly quota overlay — never blocks or breaks per-model results
-    try {
-      const weeklyQuotas = await fetchAntigravityWeeklyQuota(
-        accessToken,
-        projectId,
-        proxyOptions
-      );
-
-      // Reconcile weekly quota against model family status:
-      // If every model in a family is locked/exhausted (remainingPercentage === 0)
-      // until a future reset time, the weekly limit cannot be 100% available.
-      // On Google's Free Starter tier, retrieveUserQuotaSummary buggily reports
-      // remainingFraction: 1 even after the starter quota is depleted and all models 429.
-      const entries = Object.entries(quotas);
-      const geminiModels = entries.filter(([k]) => k.startsWith("gemini-") && !k.includes("image"));
-      const claudeModels = entries.filter(([k]) => k.startsWith("claude-"));
-
-      if (weeklyQuotas.gemini_weekly && geminiModels.length > 0) {
-        const allGeminiExhausted = geminiModels.every(([, q]) => (q.remainingPercentage ?? 0) === 0);
-        if (allGeminiExhausted && weeklyQuotas.gemini_weekly.remainingPercentage > 0) {
-          const maxResetAt = geminiModels.reduce((max, [, q]) =>
-            !max || (q.resetAt && new Date(q.resetAt) > new Date(max)) ? q.resetAt : max, null
-          );
-          weeklyQuotas.gemini_weekly.used = weeklyQuotas.gemini_weekly.total;
-          weeklyQuotas.gemini_weekly.remainingPercentage = 0;
-          if (maxResetAt) {
-            weeklyQuotas.gemini_weekly.resetAt = maxResetAt;
-          }
-        }
-      }
-
-      if (weeklyQuotas.claude_gpt_weekly && claudeModels.length > 0) {
-        const allClaudeExhausted = claudeModels.every(([, q]) => (q.remainingPercentage ?? 0) === 0);
-        if (allClaudeExhausted && weeklyQuotas.claude_gpt_weekly.remainingPercentage > 0) {
-          const maxResetAt = claudeModels.reduce((max, [, q]) =>
-            !max || (q.resetAt && new Date(q.resetAt) > new Date(max)) ? q.resetAt : max, null
-          );
-          weeklyQuotas.claude_gpt_weekly.used = weeklyQuotas.claude_gpt_weekly.total;
-          weeklyQuotas.claude_gpt_weekly.remainingPercentage = 0;
-          if (maxResetAt) {
-            weeklyQuotas.claude_gpt_weekly.resetAt = maxResetAt;
-          }
-        }
-      }
-
-      Object.assign(quotas, weeklyQuotas);
-    } catch {
-      // Silently ignore — weekly is best-effort
-    }
+    // Keep sources independent: model exhaustion cannot rewrite a weekly bucket.
+    const weekly = await fetchAntigravityWeeklyQuotaResult(accessToken, projectId, proxyOptions);
+    Object.assign(quotas, weekly.quotas);
 
     return {
       plan: subscriptionInfo?.currentTier?.name || "Unknown",
       quotas,
       subscriptionInfo,
+      ...(response.status === 401 && Object.keys(quotas).length === 0
+        ? { message: "Antigravity quota API authentication expired. Chat may still work." } : {}),
+      quotaSchemaVersion: 2,
+      quotaSources: { models: modelStatus, weekly: weekly.status },
+      quotaNotice: [
+        modelStatus === "error" ? `Model quota fetch failed (HTTP ${response.status}).` : null,
+        weekly.status === "error" ? "Weekly quota fetch failed; no weekly value is available." : null,
+      ].filter(Boolean).join(" ") || null,
     };
   } catch (error) {
     console.error("[Antigravity Usage] Error:", error.message, error.cause);
